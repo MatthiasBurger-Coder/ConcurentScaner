@@ -211,6 +211,12 @@ The script injects:
 - `-Dorg.jboss.byteman.transform.all=true`
 - `-Dbyteman.runtime.log=${BYTEMAN_RUNTIME_LOG}`
 
+Important:
+
+- Running `run-with-byteman.sh` without `BYTEMAN_HOME` fails immediately with:
+  `Missing BYTEMAN_HOME. Set it to your Byteman installation path.`
+- In the current script implementation, `BYTEMAN_HOME` is mandatory even if `BYTEMAN_AGENT_JAR` is set.
+
 Script environment variables:
 
 | Variable | Required | Description |
@@ -224,6 +230,24 @@ Script environment variables:
 | `BYTEMAN_VERBOSE` | No | Defaults to `true`. |
 | `JAVA_CMD` | No | Overrides Java command from script template. |
 | `JAVA_OPTS` | No | Extra JVM options string. |
+
+Minimal manual run example:
+
+```bash
+SRC_DIR="verification/fixtures/e2e_java/src/main/java"
+CLASSES_DIR="verification/artifacts/manual_scan/classes"
+mkdir -p "$CLASSES_DIR"
+find "$SRC_DIR" -name '*.java' | sort > verification/artifacts/manual_scan/java-files.list
+javac -d "$CLASSES_DIR" @verification/artifacts/manual_scan/java-files.list
+
+mkdir -p .byteman-home/lib
+cp verification/tools/byteman/byteman.jar .byteman-home/lib/byteman.jar
+
+export BYTEMAN_HOME="$PWD/.byteman-home"
+export APP_CLASSPATH="$PWD/$CLASSES_DIR"
+export APP_MAIN_CLASS="com.verifier.app.Main"
+./verification/artifacts/manual_scan/run-with-byteman.sh
+```
 
 ### `stress-run`
 
@@ -431,7 +455,24 @@ python -m byteman_static.cli scan \
   --generate-linux-startup verification/artifacts/manual_scan/run-with-byteman.sh
 ```
 
-2. Run your Java app through the generated launcher script (Linux/WSL), setting required launcher env vars.
+2. Prepare required launcher environment and run app through generated script:
+
+```bash
+SRC_DIR="verification/fixtures/e2e_java/src/main/java"
+CLASSES_DIR="verification/artifacts/manual_scan/classes"
+mkdir -p "$CLASSES_DIR"
+find "$SRC_DIR" -name '*.java' | sort > verification/artifacts/manual_scan/java-files.list
+javac -d "$CLASSES_DIR" @verification/artifacts/manual_scan/java-files.list
+
+mkdir -p verification/artifacts/manual_scan/byteman-home/lib
+cp verification/tools/byteman/byteman.jar verification/artifacts/manual_scan/byteman-home/lib/byteman.jar
+
+export BYTEMAN_HOME="$PWD/verification/artifacts/manual_scan/byteman-home"
+export APP_CLASSPATH="$PWD/$CLASSES_DIR"
+export APP_MAIN_CLASS="com.verifier.app.Main"
+./verification/artifacts/manual_scan/run-with-byteman.sh
+```
+
 3. Monitor the runtime log:
 
 ```bash
