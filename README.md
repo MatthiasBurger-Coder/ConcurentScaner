@@ -1,80 +1,86 @@
-# ConcurrentScanner Byteman Toolchain (jcstress-like)
+# ConcurrentScanner Byteman Toolchain
 
-This repository provides a **jcstress-like concurrency stress and observation system** for Java/JDK 17 code, built with:
+Static Java analysis + Byteman rule generation + runtime log monitoring for concurrency stress experiments.
 
-- Python static analysis (Java AST scan)
-- Byteman rule generation and startup integration (`-javaagent`)
-- Python runtime log watching and race-suspect analysis
-- repeated stress scenario execution with aggregation
+This project is **jcstress-like** in workflow (repeat runs, observe overlaps, aggregate suspicion), but it is **not** a formal jcstress replacement and does not provide proof-level memory model guarantees.
 
-It is **not** a full jcstress reimplementation.
+## What The System Does
 
-## Quick Start (Junior Friendly)
+1. Scans Java source trees and extracts types, fields, methods, and field-usage hints.
+2. Generates deterministic outputs:
+   - `Byteman.log` inventory
+   - `generated-rules.btm` rules
+   - optional `analysis-metadata.json`
+3. Generates a Linux startup wrapper that injects `-javaagent`.
+4. Watches runtime `BTM_EVT` logs and emits suspect classifications.
+5. Runs scenario-driven stress iterations and writes aggregated JSON summaries.
 
-Run inside **WSL (Linux)** from the repository root:
+## High-Level Architecture
 
-```bash
-source .venv-wsl/bin/activate
-bash verification/scripts/stress_e2e_wsl.sh
-cat verification/artifacts/stress/stress-summary.json
+- `byteman_static/parser.py`
+  Java parsing with `tree-sitter-java`, with regex fallback if AST parser is unavailable.
+- `byteman_static/generator.py`
+  Orchestrates source analysis and output generation.
+- `byteman_static/inventory.py`
+  Renders `Byteman.log`.
+- `byteman_static/rules.py`
+  Renders deterministic `.btm` rules.
+- `byteman_static/linux_integration.py`
+  Generates Linux/Bash startup script for Byteman agent launch.
+- `byteman_static/runtime_parser.py`
+  Parses runtime lines (`BTM_EVT ...` and JSON lines).
+- `byteman_static/runtime_monitor.py`
+  Tails runtime logs and detects overlapping write/read access patterns.
+- `byteman_static/stress_runner.py`
+  Compiles Java sources, runs iterations, launches watcher, writes stress results.
+- `byteman_static/stress_report.py`
+  Summarizes iteration JSONL reports and computes run outcome level.
+- `byteman_static/cli.py`
+  CLI entrypoint (`scan`, `watch`, `linux-startup`, `stress-run`).
+
+## Repository Structure
+
+```text
+byteman_static/                  # core Python implementation
+tests/                           # pytest suite
+verification/
+  fixtures/                      # Java and scenario fixtures
+  scripts/                       # WSL/Linux E2E scripts
+  reports/                       # verification reports and coverage artifacts
+  tools/                         # local JDK17 + byteman.jar used by scripts
+README.md
+requirements.txt
 ```
 
-If the script passes, you have an end-to-end local proof run.
+## Requirements And Setup
 
-## 1. What This System Does
+### Runtime Requirements
 
-- Scans Java sources recursively and builds a structural model.
-- Generates deterministic Byteman rules (`.btm`).
-- Starts Java with Byteman agent (`-javaagent`) on Linux/WSL.
-- Parses runtime `BTM_EVT` lines and flags race-condition suspects.
-- Runs repeatable scenario-based stress iterations and aggregates outcomes.
+- Python 3.12+ recommended
+- Java + javac (JDK 17 used in verification scripts)
+- Byteman agent jar (`byteman.jar`) for launcher/stress flows
+- Linux/Bash runtime required for executing generated startup script and stress E2E scripts
 
-## 2. What "jcstress-like" Means Here
+Notes:
+- `scan` and `watch` commands are pure Python and can run outside WSL if dependencies are available.
+- `linux-startup` only generates a script; the script itself is Linux/Bash.
+- `stress-run` executes that Linux startup script.
 
-This project supports a **stress-oriented workflow** similar in spirit to jcstress:
+### Python Dependencies
 
-- repeat scenarios many times
-- encourage problematic interleavings
-- capture structured events
-- aggregate repeated suspicious patterns
+`requirements.txt` currently contains:
 
-But it does **not** claim formal jcstress semantics or exhaustive memory-model proof.
+- `tree-sitter>=0.21.3`
+- `tree-sitter-java>=0.23.5`
 
-## 3. What It Does NOT Guarantee
-
-- Static analysis does not prove race conditions.
-- Runtime overlap detection is heuristic (suspect-based).
-- Deadlock proof still depends on runtime JVM evidence.
-- High-confidence suspects are still observations, not full formal proof.
-
-## 4. Architecture (Simple View)
-
-- `byteman_static/parser.py`: Java AST parsing (`tree-sitter-java`) + fallback.
-- `byteman_static/generator.py`: scan orchestration + inventory/rules output.
-- `byteman_static/rules.py`: deterministic Byteman rule rendering.
-- `byteman_static/linux_integration.py`: Linux launcher script with `-javaagent`.
-- `byteman_static/runtime_parser.py`: parse runtime `BTM_EVT` lines.
-- `byteman_static/runtime_monitor.py`: tail/follow + race suspect detection.
-- `byteman_static/stress_runner.py`: repeated scenario runs + aggregation.
-- `byteman_static/stress_report.py`: per-iteration and cross-run summaries.
-- `byteman_static/cli.py`: CLI (`scan`, `watch`, `linux-startup`, `stress-run`).
-
-## 5. Requirements
-
-- **WSL Linux environment required** for Linux verification and startup flow.
-- Java: **JDK 17** for target runtime verification.
-- Python: 3.12+ recommended.
-- Byteman agent jar (`byteman.jar`).
-- Python dependencies:
+Install:
 
 ```bash
 python -m pip install -r requirements.txt
 python -m pip install pytest pytest-cov
 ```
 
-## 6. Setup (WSL)
-
-Example setup in WSL:
+### WSL-Oriented Setup Example
 
 ```bash
 cd /mnt/d/Projects/ConcurentScaner
@@ -84,27 +90,64 @@ pip install -r requirements.txt
 pip install pytest pytest-cov
 ```
 
-The repository already includes local verification tools under `verification/tools/` in this checkout.
+## CLI Usage
 
-## 7. Static Scan + Rule Generation
+Entry command:
+
+```bash
+python -m byteman_static.cli <subcommand> [options]
+```
+
+Subcommands:
+
+- `scan`
+- `watch`
+- `linux-startup`
+- `stress-run`
+
+Compatibility behavior:
+
+- If options are passed without a subcommand (for example `--source-root ...`), CLI treats it as `scan`.
+
+## Command Reference
+
+### `scan`
+
+Scans Java sources and writes inventory/rules (and metadata unless disabled).
 
 ```bash
 python -m byteman_static.cli scan \
   --source-root verification/fixtures/e2e_java/src/main/java \
-  --package-prefix com.verifier.app \
   --output-dir verification/artifacts/manual_scan \
+  --package-prefix com.verifier.app \
   --runtime-log-path verification/artifacts/manual_scan/runtime/byteman-runtime.log \
   --generate-linux-startup verification/artifacts/manual_scan/run-with-byteman.sh
 ```
 
-Generated files:
+| Flag | Required | Default | Description |
+|---|---|---|---|
+| `--source-root` | Yes | - | Java source root scanned recursively (`*.java`). |
+| `--output-dir` | Yes | - | Output directory for generated files. |
+| `--package-prefix` | No | `None` | Package prefix filter (exact or child package). |
+| `--package-regex` | No | `None` | Regex package filter (applied with prefix filter if both set). |
+| `--helper-class` | No | `com.example.byteman.RuntimeTraceHelper` | Helper class called from generated rules. |
+| `--inventory-log-path` | No | `<output-dir>/Byteman.log` | Custom inventory path. |
+| `--rules-file-path` | No | `<output-dir>/generated-rules.btm` | Custom rules path. |
+| `--runtime-log-path` | No | `<output-dir>/Byteman.runtime.log` | Runtime log path written into metadata and launcher defaults. |
+| `--no-metadata` | No | `false` | Disable `analysis-metadata.json`. |
+| `--generate-linux-startup` | No | `None` | Also generate Linux startup script at this path. |
+| `--linux-java-command` | No | `java` | Java command inserted in generated script. |
+
+Primary outputs:
 
 - `Byteman.log`
 - `generated-rules.btm`
-- `analysis-metadata.json`
-- optional startup wrapper script
+- optional `analysis-metadata.json`
+- optional Linux launcher script
 
-## 8. Runtime Watcher
+### `watch`
+
+Tails runtime log and emits suspect alerts plus optional JSONL report.
 
 ```bash
 python -m byteman_static.cli watch \
@@ -114,13 +157,84 @@ python -m byteman_static.cli watch \
   --stop-after-idle-seconds 5
 ```
 
-## 9. Stress-Run (jcstress-like Workflow)
+| Flag | Required | Default | Description |
+|---|---|---|---|
+| `--log-file` | Yes | - | Runtime log file to read. |
+| `--poll-interval-seconds` | No | `0.25` | Poll interval while waiting for new lines. |
+| `--from-start` | No | `false` | Read from beginning of file instead of seeking to end on first open. |
+| `--no-follow` | No | `false` | Process available lines once and exit. |
+| `--stop-after-idle-seconds` | No | `None` | Stop when no new lines arrive for this duration. |
+| `--repeated-threshold` | No | `3` | Overlap count threshold for `REPEATED_RACE_SUSPECT`. |
+| `--high-confidence-threshold` | No | `6` | Overlap count threshold for `HIGH_CONFIDENCE_SUSPECT`. |
+| `--report-file` | No | `None` | JSONL output path (append mode). |
+| `--emit-raw-events` | No | `false` | Print parsed raw events to stdout. |
 
-Scenario file example is provided:
+Threshold behavior:
 
-- `verification/fixtures/stress_scenarios/shared_counter_stress.json`
+- Internal monitor clamps `repeated-threshold` to at least `1`.
+- Internal monitor clamps `high-confidence-threshold` to at least repeated threshold.
 
-Run:
+Summary output format:
+
+```text
+WATCH_SUMMARY
+lines=...
+parsed_events=...
+ignored_lines=...
+race_suspects=...
+repeated_race_suspects=...
+high_confidence_suspects=...
+```
+
+### `linux-startup`
+
+Generates Linux/Bash wrapper that launches Java with Byteman `-javaagent`.
+
+```bash
+python -m byteman_static.cli linux-startup \
+  --output-script verification/artifacts/manual_scan/run-with-byteman.sh \
+  --rules-file verification/artifacts/manual_scan/generated-rules.btm \
+  --runtime-log-file verification/artifacts/manual_scan/runtime/byteman-runtime.log
+```
+
+| Flag | Required | Default | Description |
+|---|---|---|---|
+| `--output-script` | Yes | - | Path to generated shell script. |
+| `--rules-file` | Yes | - | `.btm` file path used by agent. |
+| `--runtime-log-file` | Yes | - | Runtime log file path passed as `-Dbyteman.runtime.log`. |
+| `--java-command` | No | `java` | Default Java command used by script (`JAVA_CMD` can override at runtime). |
+
+The script injects:
+
+- `-javaagent:${BYTEMAN_AGENT_JAR}=script:${BYTEMAN_RULES_FILE},listener:true`
+- `-Dorg.jboss.byteman.verbose=${BYTEMAN_VERBOSE}`
+- `-Dorg.jboss.byteman.transform.all=true`
+- `-Dbyteman.runtime.log=${BYTEMAN_RUNTIME_LOG}`
+
+Script environment variables:
+
+| Variable | Required | Description |
+|---|---|---|
+| `BYTEMAN_HOME` | Yes | Must contain `lib/byteman.jar` unless `BYTEMAN_AGENT_JAR` is set. |
+| `APP_JAR` | One launch mode | If set, script runs `java -jar "$APP_JAR"`. |
+| `APP_CLASSPATH` + `APP_MAIN_CLASS` | One launch mode | If both set, script runs classpath launch. |
+| `BYTEMAN_AGENT_JAR` | No | Explicit agent jar path override. |
+| `BYTEMAN_RULES_FILE` | No | Override rules path (defaults to generation-time value). |
+| `BYTEMAN_RUNTIME_LOG` | No | Override runtime log path (defaults to generation-time value). |
+| `BYTEMAN_VERBOSE` | No | Defaults to `true`. |
+| `JAVA_CMD` | No | Overrides Java command from script template. |
+| `JAVA_OPTS` | No | Extra JVM options string. |
+
+### `stress-run`
+
+Runs repeated scenario-based stress iterations:
+
+- compiles scenario Java sources
+- generates rules/inventory
+- generates launcher script
+- executes app per iteration
+- runs runtime watcher per iteration
+- writes aggregate JSON summary
 
 ```bash
 python -m byteman_static.cli stress-run \
@@ -133,61 +247,129 @@ python -m byteman_static.cli stress-run \
   --concurrency-level 4
 ```
 
-## 10. Linux Startup Integration (`-javaagent`)
+| Flag | Required | Default | Description |
+|---|---|---|---|
+| `--scenario-file` | Yes | - | Stress scenario JSON file. |
+| `--output-dir` | Yes | - | Run output directory (compiled classes, logs, summaries). |
+| `--iterations` | No | Scenario `default_iterations` | Iteration count override. |
+| `--concurrency-level` | No | Scenario `default_concurrency_level` | Concurrency override; exported as `STRESS_CONCURRENCY_LEVEL`. |
+| `--byteman-jar` | No | Scenario `byteman_jar` | Explicit byteman jar path; required by final resolved config. |
+| `--java-command` | No | `java` | Java command used by generated launcher. |
+| `--javac-command` | No | `javac` | Javac command used for source compilation. |
+| `--watcher-poll-interval-seconds` | No | `0.25` | Watcher polling interval per iteration. |
+| `--watcher-idle-seconds` | No | `3.0` | Watcher idle timeout per iteration. |
+| `--repeated-threshold` | No | `3` | Repeated suspect threshold in monitor and aggregate classifier. |
+| `--high-confidence-threshold` | No | `6` | High-confidence threshold in monitor and aggregate classifier. |
+| `--emit-raw-events` | No | `false` | Emit parsed raw events while stress run executes. |
+| `--fail-fast` | No | `false` | Stop after first failed iteration. |
 
-Use generated script (or generate only):
+Per-iteration process environment injected by stress runner:
 
-```bash
-python -m byteman_static.cli linux-startup \
-  --output-script verification/artifacts/manual_scan/run-with-byteman.sh \
-  --rules-file verification/artifacts/manual_scan/generated-rules.btm \
-  --runtime-log-file verification/artifacts/manual_scan/runtime/byteman-runtime.log
-```
+| Variable | Source | Description |
+|---|---|---|
+| `APP_CLASSPATH` | Runner | Set to `<output-dir>/classes`. |
+| `APP_MAIN_CLASS` | Scenario `main_class` | Main class executed by launcher script. |
+| `BYTEMAN_HOME` | Runner | Set to `<output-dir>/byteman-home` (contains copied jar). |
+| `BYTEMAN_RULES_FILE` | Runner | Set to generated rules path. |
+| `BYTEMAN_RUNTIME_LOG` | Runner | Set to iteration runtime log path. |
+| `STRESS_ITERATION` | Runner | Current iteration number (1-based). |
+| `STRESS_CONCURRENCY_LEVEL` | CLI/scenario resolved value | Concurrency level for app side tuning. |
+| additional keys from scenario `env` | Scenario JSON | Merged into environment before fixed keys above are applied. |
 
-The launcher injects:
+Error behavior:
 
-- `-javaagent:<byteman.jar>=script:<rules>,listener:true`
-- `-Dorg.jboss.byteman.verbose=true`
-- `-Dorg.jboss.byteman.transform.all=true`
-- `-Dbyteman.runtime.log=<runtime-log>`
+- Missing scenario file or invalid scenario JSON: CLI returns exit code `2`.
+- Missing resolved `byteman.jar`: CLI returns exit code `2`.
+- Other stress runner exceptions: CLI returns exit code `1`.
 
-## 11. Tests
+### Stress Scenario File (`--scenario-file`)
 
-Unit/component/integration tests:
+Scenario JSON may be either:
 
-```bash
-source .venv-wsl/bin/activate
-python -m pytest -q
-```
+- direct object with fields below, or
+- `{ "scenario": { ... } }`
 
-Coverage:
+Relative paths are resolved relative to the scenario file directory.
 
-```bash
-python -m pytest --cov=byteman_static \
-  --cov-report=term-missing \
-  --cov-report=xml:verification/reports/coverage.xml \
-  --cov-report=html:verification/reports/coverage_html -q
-```
+Example fixture: `verification/fixtures/stress_scenarios/shared_counter_stress.json`
 
-## 12. End-to-End Scripts
+| Field | Required | Default | Description |
+|---|---|---|---|
+| `scenario_id` | No | Scenario filename stem | Scenario identifier for reports. |
+| `source_root` | Yes | - | Java source root used for compile + static scan. |
+| `main_class` | Yes | - | Java main class to execute. |
+| `description` | No | `None` | Free-text scenario description. |
+| `package_prefix` | No | `None` | Scan filter prefix. |
+| `package_regex` | No | `None` | Scan filter regex. |
+| `helper_class` | No | `com.example.byteman.RuntimeTraceHelper` | Helper class used in generated rules. |
+| `java_sources_glob` | No | `**/*.java` | Glob under `source_root` used for compilation. |
+| `app_args` | No | `[]` | Extra CLI args passed to the launched Java app. |
+| `env` | No | `{}` | Environment variables merged into app process env. |
+| `default_iterations` | No | `10` | Positive integer default for iterations. |
+| `default_concurrency_level` | No | `2` | Positive integer default for concurrency level. |
+| `byteman_jar` | No | `None` | Optional jar path if not passed by CLI flag. |
 
-- Baseline E2E: `verification/scripts/e2e_wsl.sh`
-- Negative/resilience scenarios: `verification/scripts/negative_scenarios_wsl.sh`
-- jcstress-like stress E2E: `verification/scripts/stress_e2e_wsl.sh`
+### Runtime Event Format
 
-## 13. Where Logs and Reports Are Written
+`watch` accepts:
 
-- Baseline E2E artifacts: `verification/artifacts/e2e/`
-- Negative scenario artifacts: `verification/artifacts/negative/`
-- Stress-run artifacts: `verification/artifacts/stress/`
-  - `stress-summary.json`
-  - `stress-results.json`
-  - `runs/iteration-*/watcher-report.jsonl`
-  - per-iteration runtime/app logs
+- key/value lines starting with `BTM_EVT `
+- JSON object lines
 
-## 14. Result Categories
+Recognized event aliases map to:
 
-Runtime and stress classification uses:
+- `METHOD_ENTER`: `METHOD_ENTER`, `ENTER`
+- `METHOD_EXIT`: `METHOD_EXIT`, `EXIT`
+- `FIELD_BEFORE`: `FIELD_BEFORE`, `BEFORE_FIELD_ACCESS`, `FIELD_ACCESS_BEGIN`
+- `FIELD_AFTER`: `FIELD_AFTER`, `AFTER_FIELD_ACCESS`, `FIELD_ACCESS_END`
+- `DEADLOCK_CHECK`: `DEADLOCK_CHECK`, `CHECK_DEADLOCK`
+
+Timestamp parsing supports:
+
+- ISO timestamps (including `...Z`)
+- epoch seconds
+- epoch milliseconds
+
+## Outputs And Artifacts
+
+### Scan Outputs
+
+Default files in `--output-dir`:
+
+- `Byteman.log`
+- `generated-rules.btm`
+- `analysis-metadata.json` (unless `--no-metadata`)
+- default runtime log path for launcher metadata: `Byteman.runtime.log`
+
+### Watch Outputs
+
+- stdout suspect lines (for example `RACE_SUSPECT class=... field=...`)
+- final `WATCH_SUMMARY`
+- optional JSONL report (`record_type` = `RAW_EVENT` or suspect levels)
+
+### Stress-Run Outputs
+
+Inside `--output-dir`:
+
+- `generated/`
+  - `Byteman.log`
+  - `generated-rules.btm`
+  - `Byteman.runtime.log` (generation-time runtime path)
+- `classes/` compiled `.class` files
+- `run-with-byteman.sh`
+- `byteman-home/lib/byteman.jar` (copied from provided jar)
+- `java-files.list` (javac argument file)
+- `compile-stdout.log`, `compile-stderr.log`
+- `runs/iteration-0001/` (per iteration)
+  - `runtime/byteman-runtime.log`
+  - `watcher-report.jsonl`
+  - `app-stdout.log`, `app-stderr.log`
+- `stress-summary.json` (aggregate summary)
+- `stress-results.json` (config + summary + full iteration details)
+
+## Result Levels
+
+Runtime suspect levels:
 
 - `RACE_SUSPECT`
 - `REPEATED_RACE_SUSPECT`
@@ -200,61 +382,113 @@ Aggregate stress outcome levels:
 - `REPEATED_SUSPICIOUS`
 - `HIGH_CONFIDENCE_SUSPICIOUS`
 
-Interpretation:
+Classification behavior comes from `byteman_static/stress_report.py`:
 
-- `BENIGN`: no suspicious overlapping pattern observed.
-- `SUSPICIOUS`: suspicious overlap observed.
-- `REPEATED_SUSPICIOUS`: suspicious pattern repeats across runs.
-- `HIGH_CONFIDENCE_SUSPICIOUS`: repeated/strong evidence, still heuristic.
+- Any `HIGH_CONFIDENCE_SUSPECT` event => `HIGH_CONFIDENCE_SUSPICIOUS`
+- Else repeated patterns / repeated suspect thresholds => `REPEATED_SUSPICIOUS` or `SUSPICIOUS`
 
-## 15. Expected Output Examples
+## Verification Scripts
 
-CLI stress summary (stdout):
+WSL/Linux scripts under `verification/scripts/`:
 
-```text
-STRESS_SUMMARY
-scenario_id=shared-counter-overlap
-outcome_level=HIGH_CONFIDENCE_SUSPICIOUS
-total_iterations=5
-successful_iterations=5
-...
+- `e2e_wsl.sh`
+  End-to-end scan + compile + startup + watcher run against `verification/fixtures/e2e_java`.
+- `negative_scenarios_wsl.sh`
+  Negative/resilience checks (missing roots, malformed logs, read/read-only overlap, etc.).
+- `stress_e2e_wsl.sh`
+  Stress runner execution and JSON assertions.
+
+Quick stress E2E run:
+
+```bash
+source .venv-wsl/bin/activate
+bash verification/scripts/stress_e2e_wsl.sh
+cat verification/artifacts/stress/stress-summary.json
 ```
 
-Watcher alert line:
+Verification script artifact paths:
 
-```text
-RACE_SUSPECT class=com.verifier.app.SharedCounter field=value threads=...
+- `verification/scripts/e2e_wsl.sh`
+  - writes under `verification/artifacts/e2e/`
+  - key files: `generated/*`, `runtime/byteman-runtime.log`, `watcher-report.jsonl`, `watcher-stdout.log`, `app-stdout.log`, `app-stderr.log`, `e2e-summary.txt`
+- `verification/scripts/negative_scenarios_wsl.sh`
+  - writes under `verification/artifacts/negative/`
+  - key files: `negative-scenarios.txt`, `<scenario>.stdout.log`, `<scenario>.stderr.log`
+- `verification/scripts/stress_e2e_wsl.sh`
+  - writes under `verification/artifacts/stress/`
+  - key files: `stress-summary.json`, `stress-results.json`, `stress-stdout.log`, `stress-stderr.log`
+
+## Example Workflow
+
+1. Generate rules/inventory from Java sources:
+
+```bash
+python -m byteman_static.cli scan \
+  --source-root verification/fixtures/e2e_java/src/main/java \
+  --package-prefix com.verifier.app \
+  --output-dir verification/artifacts/manual_scan \
+  --runtime-log-path verification/artifacts/manual_scan/runtime/byteman-runtime.log \
+  --generate-linux-startup verification/artifacts/manual_scan/run-with-byteman.sh
 ```
 
-## 16. Common Errors and Fixes
+2. Run your Java app through the generated launcher script (Linux/WSL), setting required launcher env vars.
+3. Monitor the runtime log:
 
-- `Missing .venv-wsl`
-  - Create it with `python3 -m venv .venv-wsl`.
+```bash
+python -m byteman_static.cli watch \
+  --log-file verification/artifacts/manual_scan/runtime/byteman-runtime.log \
+  --from-start \
+  --report-file verification/artifacts/manual_scan/watcher-report.jsonl \
+  --stop-after-idle-seconds 5
+```
+
+4. For repeated scenario execution, switch to `stress-run` with a scenario file and inspect:
+   - `stress-summary.json`
+   - `stress-results.json`
+
+## Testing
+
+Run tests:
+
+```bash
+python -m pytest -q
+```
+
+Coverage:
+
+```bash
+python -m pytest --cov=byteman_static \
+  --cov-report=term-missing \
+  --cov-report=xml:verification/reports/coverage.xml \
+  --cov-report=html:verification/reports/coverage_html -q
+```
+
+## Troubleshooting
+
+- `Source root does not exist or is not a directory`
+  - Check `--source-root` or scenario `source_root`.
+- `No Java sources matched ...`
+  - Check scenario `java_sources_glob`.
 - `byteman.jar path is required`
-  - Add `--byteman-jar ...` or set `byteman_jar` in scenario JSON.
-- `Source root does not exist`
-  - Check `source_root` in scenario/config.
-- `processing of -javaagent failed`
-  - Verify Byteman jar path and rules file path.
-- No suspects seen in stress run
-  - Increase iterations/concurrency or pause values in scenario env.
+  - Pass `--byteman-jar` or set scenario `byteman_jar`.
+- Launcher exits with missing env error
+  - Set `BYTEMAN_HOME` and either `APP_JAR` or `APP_CLASSPATH` + `APP_MAIN_CLASS`.
+- Watcher returns no suspects
+  - Ensure overlap includes at least one write from different threads; read/read overlaps are ignored by design.
+- Parser backend falls back to heuristic mode
+  - Verify `tree-sitter` and `tree-sitter-java` are installed.
+- Running stress on non-Linux host fails to execute launcher
+  - Generated launcher is Bash-based; use Linux/WSL runtime.
 
-## 17. Troubleshooting
+## Limitations And Boundaries
 
-- Confirm WSL runtime context:
-  - `uname -a`
-  - `python3 --version`
-  - `java -version`
-- Check generated launcher script:
-  - `verification/artifacts/stress/run-with-byteman.sh`
-- Check per-iteration logs:
-  - `verification/artifacts/stress/runs/iteration-*/`
-- Check machine-readable summary:
-  - `verification/artifacts/stress/stress-summary.json`
+- Static analysis is structural and conservative; it is not a race proof.
+- Field usage mapping does not perform full cross-file type resolution.
+- Heuristic parser fallback has reduced Java syntax coverage.
+- Runtime detection is overlap-based heuristic, not lock-state proof.
+- Deadlock event generation exists (`detectDeadlockNow`) but full deadlock proof still depends on JVM/runtime evidence.
 
-## 18. Verification Reports
+## Additional Verification Docs
 
-- Functional coverage matrix:
-  - `verification/reports/functional_coverage_matrix.md`
-- Local proof report:
-  - `verification/reports/local_proof_report.md`
+- `verification/reports/functional_coverage_matrix.md`
+- `verification/reports/local_proof_report.md`
