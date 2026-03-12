@@ -3,3 +3,13 @@ __pycache__/
 *.pyc
 out/
 tmp_verify_src/
+.venv-wsl/
+.coverage
+.pytest_cache/
+
+# Verification runtime artifacts (generated during local proof runs)
+verification/artifacts/
+verification/evidence/
+verification/tools/
+verification/reports/coverage.xml
+verification/reports/coverage_html/
