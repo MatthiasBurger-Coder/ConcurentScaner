@@ -1,115 +1,147 @@
-# ConcurrentScanner - Static Byteman Generator
+# ConcurrentScanner Byteman Toolchain (Linux Runtime Target)
 
-Python toolchain for statically scanning Java sources and generating:
+This repository now contains a Python-based static and runtime analysis toolchain for Byteman.
 
-- `Byteman.log` inventory
-- `generated-rules.btm` rule file
-- optional `analysis-metadata.json` traceability output
+## Current repository state
 
-The generator is designed for runtime concurrency investigations with a companion Java helper, especially:
+At the time of implementation in this checkout:
 
-- deadlock suspicion checks (runtime-only confirmation via `ThreadMXBean` or equivalent)
-- race-condition suspicion logging (static signal + runtime evidence)
+- no Java source files were present
+- no Maven/Gradle build files were present
+- no existing Java startup script was present
 
-## Module layout
+Because of that, integration is provided as an explicit Linux startup wrapper template that can be attached to the real Java app startup path when Java sources/build scripts are added or checked out.
 
-- `byteman_static/parser.py`: Java parsing and source-tree scan orchestration
-- `byteman_static/model.py`: analysis data model
-- `byteman_static/inventory.py`: `Byteman.log` formatter/writer
-- `byteman_static/rules.py`: deterministic Byteman rule generation
-- `byteman_static/generator.py`: end-to-end pipeline wiring
-- `byteman_static/cli.py`: command-line entrypoint
+## What is implemented
 
-## Parser strategy
+Python package: `byteman_static/`
 
-- Preferred: AST parsing using `tree-sitter` + `tree-sitter-java` (recommended for Java/JDK 17 codebases)
-- Fallback: heuristic regex parser when AST dependencies are unavailable
+- `parser.py`: recursive Java scan + AST parsing (`tree-sitter-java`) with fallback parser
+- `model.py`: static analysis domain model (`TypeInfo`, `MethodInfo`, `FieldUsage`, `RuleDefinition`, etc.)
+- `inventory.py`: `Byteman.log` inventory rendering
+- `rules.py`: deterministic `.btm` generation
+- `generator.py`: scan/generate orchestration and metadata output
+- `runtime_parser.py`: runtime event line parser (`BTM_EVT ...`)
+- `runtime_model.py`: runtime event and race suspect model
+- `runtime_monitor.py`: live log follower (`tail -f` behavior) + race-suspect detection
+- `linux_integration.py`: Linux startup script generation for `-javaagent`
+- `cli.py`: CLI entrypoints (`scan`, `watch`, `linux-startup`)
 
-The output clearly reports parser backend and limitations.
-
-## Install
+## Install dependencies
 
 ```bash
 python -m pip install -r requirements.txt
 ```
 
-## CLI usage
+## CLI commands
+
+### 1. Static scan + rule generation
 
 ```bash
-python -m byteman_static.cli \
-  --source-root D:\path\to\project\src\main\java \
+python -m byteman_static.cli scan \
+  --source-root /path/to/src/main/java \
   --package-prefix com.example \
-  --output-dir D:\path\to\project\build\byteman
+  --output-dir /path/to/out \
+  --runtime-log-path /path/to/logs/byteman-runtime.log \
+  --generate-linux-startup /path/to/scripts/run-with-byteman.sh
 ```
 
-### Arguments
+Outputs:
 
-- `--source-root` (required): recursively scanned root for `.java` files
-- `--output-dir` (required): output directory
-- `--package-prefix` (optional): include package and subpackages
-- `--package-regex` (optional): additional regex filter for package names
-- `--helper-class` (optional): helper used in generated actions, default `com.example.byteman.RuntimeTraceHelper`
-- `--no-metadata` (optional): skip `analysis-metadata.json`
+- `Byteman.log` inventory
+- `generated-rules.btm`
+- `analysis-metadata.json` (unless `--no-metadata`)
+- optional Linux startup script
 
-## Generated output format examples
+### 2. Runtime log watcher
 
-### `Byteman.log` (sample)
+```bash
+python -m byteman_static.cli watch \
+  --log-file /path/to/logs/byteman-runtime.log \
+  --report-file /path/to/out/race-report.jsonl \
+  --emit-raw-events
+```
+
+Optional:
+
+- `--no-follow` to process once and exit
+- `--from-start` to read from beginning
+- `--repeated-threshold 3`
+- `--high-confidence-threshold 6`
+- `--stop-after-idle-seconds 5` for smoke tests
+
+### 3. Linux startup script generation only
+
+```bash
+python -m byteman_static.cli linux-startup \
+  --output-script /path/to/scripts/run-with-byteman.sh \
+  --rules-file /path/to/out/generated-rules.btm \
+  --runtime-log-file /path/to/logs/byteman-runtime.log
+```
+
+## Runtime event format expected by watcher
+
+The watcher consumes structured line events such as:
 
 ```text
-# Byteman static inventory
-# parser_backend=tree-sitter-java
-SUMMARY SCANNED_FILES 12
-SUMMARY PARSED_FILES 12
-SUMMARY PARSE_FAILURES 0
-SUMMARY TYPES 8
-SUMMARY METHODS 42
-SUMMARY FIELDS 19
-
-FILE D:\repo\src\main\java\com\example\service\AccountService.java
-PARSE_MODE ast
-PACKAGE com.example.service
-IMPORT java.util.concurrent.locks.ReentrantLock
-TYPE CLASS com.example.service.AccountService
-CLASS com.example.service.AccountService
-FIELD lock : ReentrantLock
-METHOD transfer(long,long) RETURN boolean
-PARAM fromId : long
-PARAM toId : long
-LOCAL attempts
-USES_FIELD lock ACCESS READ CONFIDENCE EXACT EVIDENCE node=field_access
+BTM_EVT ts=2026-03-12T20:00:00.100Z event=FIELD_BEFORE thread=worker-1 tid=41 class=com.example.Counter method=inc() field=value write=true
+BTM_EVT ts=2026-03-12T20:00:00.101Z event=FIELD_AFTER thread=worker-1 tid=41 class=com.example.Counter method=inc() field=value write=true
 ```
 
-### `generated-rules.btm` (sample)
+Accepted event types:
 
-```text
-RULE BM_ENTRY__com_example_service_AccountService__transfer_long_long_
-CLASS com.example.service.AccountService
-METHOD transfer(long,long)
-AT ENTRY
-IF TRUE
-DO com.example.byteman.RuntimeTraceHelper.onMethodEnter("com.example.service.AccountService", "transfer(long,long)"); com.example.byteman.RuntimeTraceHelper.detectDeadlockNow()
-ENDRULE
+- `METHOD_ENTER`
+- `METHOD_EXIT`
+- `FIELD_BEFORE`
+- `FIELD_AFTER`
+- `DEADLOCK_CHECK`
 
-RULE BM_EXIT__com_example_service_AccountService__transfer_long_long_
-CLASS com.example.service.AccountService
-METHOD transfer(long,long)
-AT EXIT
-IF TRUE
-DO com.example.byteman.RuntimeTraceHelper.onMethodExit("com.example.service.AccountService", "transfer(long,long)")
-ENDRULE
+## Inventory output keys
 
-RULE BM_FIELD_BEFORE_READ__com_example_service_AccountService__transfer_long_long___lock
-CLASS com.example.service.AccountService
-METHOD transfer(long,long)
-AT READ lock
-IF TRUE
-DO com.example.byteman.RuntimeTraceHelper.beforeFieldAccess("com.example.service.AccountService", "transfer(long,long)", "lock", false)
-ENDRULE
-```
+`Byteman.log` includes structured items:
 
-## Notes and limitations
+- `FILE`
+- `PACKAGE`
+- `IMPORT`
+- `TYPE`
+- `CLASS`
+- `INTERFACE`
+- `ENUM`
+- `RECORD`
+- `FIELD`
+- `CONSTRUCTOR`
+- `METHOD`
+- `PARAM`
+- `LOCAL`
+- `USES_FIELD`
 
-- Static analysis provides exact source-structure facts (where parser support is available).
-- Field usage mapping is conservative and intentionally marks uncertain cases as heuristic.
-- Static analysis alone cannot prove race conditions.
-- Deadlock identification must rely on runtime JVM facilities in the companion helper.
+## Race suspicion levels
+
+Runtime monitor emits:
+
+- `RACE_SUSPECT`
+- `REPEATED_RACE_SUSPECT`
+- `HIGH_CONFIDENCE_SUSPECT`
+
+These are heuristic signals based on overlapping field-access windows across threads with at least one write. They are not formal proof.
+
+## Linux startup integration behavior
+
+Generated script:
+
+- injects `-javaagent:<byteman.jar>=script:<generated-rules.btm>,listener:true`
+- sets:
+  - `-Dorg.jboss.byteman.verbose=true`
+  - `-Dorg.jboss.byteman.transform.all=true`
+  - `-Dbyteman.runtime.log=<runtime log path>`
+- supports startup via:
+  - `APP_JAR`, or
+  - `APP_CLASSPATH` + `APP_MAIN_CLASS`
+
+## Limitations
+
+- Static analysis cannot prove race conditions.
+- Runtime overlap detection is heuristic and field-centric.
+- No deep interprocedural alias analysis is performed.
+- `tree-sitter-java` parsing quality depends on source validity and grammar support.
+- This checkout currently lacks Java app/build/startup files, so integration is delivered as explicit script generation rather than patching an existing launcher.

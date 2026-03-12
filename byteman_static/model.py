@@ -7,6 +7,7 @@ TypeKind = Literal["class", "interface", "enum", "record"]
 ParseMode = Literal["ast", "heuristic"]
 FieldAccessKind = Literal["read", "write"]
 Confidence = Literal["exact", "heuristic"]
+RuleLocation = Literal["ENTRY", "EXIT", "READ", "WRITE"]
 
 
 @dataclass(frozen=True)
@@ -108,3 +109,13 @@ class AnalysisResult:
         payload["discovered_methods"] = self.discovered_methods
         payload["discovered_fields"] = self.discovered_fields
         return payload
+
+
+@dataclass(frozen=True)
+class RuleDefinition:
+    name: str
+    class_name: str
+    method_signature: str
+    location: RuleLocation
+    action: str
+    field_name: str | None = None

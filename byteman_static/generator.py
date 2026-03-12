@@ -17,6 +17,9 @@ class GeneratorConfig:
     package_prefix: str | None = None
     package_regex: str | None = None
     helper_class: str = "com.example.byteman.RuntimeTraceHelper"
+    inventory_log_path: Path | None = None
+    rules_file_path: Path | None = None
+    runtime_log_path: Path | None = None
     write_metadata: bool = True
 
 
@@ -25,6 +28,7 @@ class GeneratorOutput:
     analysis: AnalysisResult
     byteman_log_path: Path
     rules_path: Path
+    runtime_log_path: Path
     metadata_path: Path | None
     generated_rules: int
 
@@ -37,8 +41,9 @@ def run_generator(config: GeneratorConfig) -> GeneratorOutput:
         package_regex=config.package_regex,
     )
 
-    byteman_log_path = config.output_dir / "Byteman.log"
-    rules_path = config.output_dir / "generated-rules.btm"
+    byteman_log_path = (config.inventory_log_path or (config.output_dir / "Byteman.log")).resolve()
+    rules_path = (config.rules_file_path or (config.output_dir / "generated-rules.btm")).resolve()
+    runtime_log_path = (config.runtime_log_path or (config.output_dir / "Byteman.runtime.log")).resolve()
     write_inventory_log(analysis, byteman_log_path)
     generated_rules = write_byteman_rules(analysis, rules_path, config.helper_class)
 
@@ -52,6 +57,9 @@ def run_generator(config: GeneratorConfig) -> GeneratorOutput:
                 "package_prefix": config.package_prefix,
                 "package_regex": config.package_regex,
                 "helper_class": config.helper_class,
+                "inventory_log_path": str(byteman_log_path),
+                "rules_file_path": str(rules_path),
+                "runtime_log_path": str(runtime_log_path),
                 "write_metadata": config.write_metadata,
             },
             "analysis": analysis.to_dict(),
@@ -69,6 +77,7 @@ def run_generator(config: GeneratorConfig) -> GeneratorOutput:
         analysis=analysis,
         byteman_log_path=byteman_log_path,
         rules_path=rules_path,
+        runtime_log_path=runtime_log_path,
         metadata_path=metadata_path,
         generated_rules=generated_rules,
     )

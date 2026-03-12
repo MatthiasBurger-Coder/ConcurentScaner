@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from byteman_static.model import AnalysisResult, MethodInfo, TypeInfo
+from byteman_static.model import AnalysisResult, MethodInfo, RuleDefinition
 
 
 def write_byteman_rules(result: AnalysisResult, output_path: Path, helper_class: str) -> int:
@@ -20,12 +20,25 @@ def build_rule_lines(result: AnalysisResult, helper_class: str) -> tuple[list[st
         "# Runtime races/deadlocks must be confirmed by helper logic and JVM state.",
         "",
     ]
-    rule_count = 0
+    definitions = build_rule_definitions(result=result, helper_class=helper_class)
+
+    current_class = ""
+    for definition in definitions:
+        if definition.class_name != current_class:
+            current_class = definition.class_name
+            lines.append(f"# CLASS {current_class}")
+        lines.extend(_render_rule(definition))
+        lines.append("")
+
+    return lines, len(definitions)
+
+
+def build_rule_definitions(result: AnalysisResult, helper_class: str) -> list[RuleDefinition]:
+    definitions: list[RuleDefinition] = []
     used_rule_names: set[str] = set()
 
     for file_info in sorted(result.java_files, key=lambda item: item.file_path.lower()):
         for type_info in sorted(file_info.types, key=lambda item: item.qualified_name):
-            lines.append(f"# CLASS {type_info.qualified_name}")
             for method in sorted(type_info.methods, key=lambda item: item.signature):
                 entry_name = _unique_rule_name(
                     used_rule_names,
@@ -35,25 +48,8 @@ def build_rule_lines(result: AnalysisResult, helper_class: str) -> tuple[list[st
                     used_rule_names,
                     f"BM_EXIT__{_sanitize(type_info.qualified_name)}__{_sanitize(method.signature)}",
                 )
-                lines.extend(
-                    _entry_rule(
-                        rule_name=entry_name,
-                        class_name=type_info.qualified_name,
-                        method=method,
-                        helper_class=helper_class,
-                    )
-                )
-                lines.append("")
-                lines.extend(
-                    _exit_rule(
-                        rule_name=exit_name,
-                        class_name=type_info.qualified_name,
-                        method=method,
-                        helper_class=helper_class,
-                    )
-                )
-                lines.append("")
-                rule_count += 2
+                definitions.append(_entry_rule_definition(entry_name, type_info.qualified_name, method, helper_class))
+                definitions.append(_exit_rule_definition(exit_name, type_info.qualified_name, method, helper_class))
 
                 field_pairs = sorted(
                     {(usage.field_name, usage.access_kind) for usage in method.field_usages},
@@ -74,8 +70,8 @@ def build_rule_lines(result: AnalysisResult, helper_class: str) -> tuple[list[st
                             f"__{_sanitize(method.signature)}__{_sanitize(field_name)}"
                         ),
                     )
-                    lines.extend(
-                        _field_rule(
+                    definitions.append(
+                        _field_rule_definition(
                             rule_name=before_name,
                             class_name=type_info.qualified_name,
                             method=method,
@@ -85,9 +81,8 @@ def build_rule_lines(result: AnalysisResult, helper_class: str) -> tuple[list[st
                             helper_class=helper_class,
                         )
                     )
-                    lines.append("")
-                    lines.extend(
-                        _field_rule(
+                    definitions.append(
+                        _field_rule_definition(
                             rule_name=after_name,
                             class_name=type_info.qualified_name,
                             method=method,
@@ -97,42 +92,35 @@ def build_rule_lines(result: AnalysisResult, helper_class: str) -> tuple[list[st
                             helper_class=helper_class,
                         )
                     )
-                    lines.append("")
-                    rule_count += 2
-
-    return lines, rule_count
+    return definitions
 
 
-def _entry_rule(rule_name: str, class_name: str, method: MethodInfo, helper_class: str) -> list[str]:
+def _entry_rule_definition(rule_name: str, class_name: str, method: MethodInfo, helper_class: str) -> RuleDefinition:
     method_name = _quote(method.display_name)
-    return [
-        f"RULE {rule_name}",
-        f"CLASS {class_name}",
-        f"METHOD {method.signature}",
-        "AT ENTRY",
-        "IF TRUE",
-        (
-            f"DO {helper_class}.onMethodEnter(\"{_quote(class_name)}\", \"{method_name}\"); "
+    return RuleDefinition(
+        name=rule_name,
+        class_name=class_name,
+        method_signature=method.signature,
+        location="ENTRY",
+        action=(
+            f"{helper_class}.onMethodEnter(\"{_quote(class_name)}\", \"{method_name}\"); "
             f"{helper_class}.detectDeadlockNow()"
         ),
-        "ENDRULE",
-    ]
+    )
 
 
-def _exit_rule(rule_name: str, class_name: str, method: MethodInfo, helper_class: str) -> list[str]:
+def _exit_rule_definition(rule_name: str, class_name: str, method: MethodInfo, helper_class: str) -> RuleDefinition:
     method_name = _quote(method.display_name)
-    return [
-        f"RULE {rule_name}",
-        f"CLASS {class_name}",
-        f"METHOD {method.signature}",
-        "AT EXIT",
-        "IF TRUE",
-        f"DO {helper_class}.onMethodExit(\"{_quote(class_name)}\", \"{method_name}\")",
-        "ENDRULE",
-    ]
+    return RuleDefinition(
+        name=rule_name,
+        class_name=class_name,
+        method_signature=method.signature,
+        location="EXIT",
+        action=f"{helper_class}.onMethodExit(\"{_quote(class_name)}\", \"{method_name}\")",
+    )
 
 
-def _field_rule(
+def _field_rule_definition(
     rule_name: str,
     class_name: str,
     method: MethodInfo,
@@ -140,9 +128,7 @@ def _field_rule(
     access_kind: str,
     before: bool,
     helper_class: str,
-) -> list[str]:
-    before_token = "AT" if before else "AFTER"
-    access_token = "WRITE" if access_kind == "write" else "READ"
+) -> RuleDefinition:
     is_write = "true" if access_kind == "write" else "false"
     action = (
         f"{helper_class}.beforeFieldAccess(\"{_quote(class_name)}\", \"{_quote(method.display_name)}\", "
@@ -150,13 +136,30 @@ def _field_rule(
         if before
         else f"{helper_class}.afterFieldAccess(\"{_quote(class_name)}\", \"{_quote(field_name)}\", {is_write})"
     )
+    return RuleDefinition(
+        name=rule_name,
+        class_name=class_name,
+        method_signature=method.signature,
+        location="WRITE" if access_kind == "write" else "READ",
+        action=action,
+        field_name=field_name,
+    )
+
+
+def _render_rule(rule: RuleDefinition) -> list[str]:
+    if rule.field_name:
+        before_token = "AT" if "BEFORE" in rule.name else "AFTER"
+        location = "WRITE" if "WRITE" in rule.name else "READ"
+        location_line = f"{before_token} {location} {rule.field_name}"
+    else:
+        location_line = f"AT {rule.location}"
     return [
-        f"RULE {rule_name}",
-        f"CLASS {class_name}",
-        f"METHOD {method.signature}",
-        f"{before_token} {access_token} {field_name}",
+        f"RULE {rule.name}",
+        f"CLASS {rule.class_name}",
+        f"METHOD {rule.method_signature}",
+        location_line,
         "IF TRUE",
-        f"DO {action}",
+        f"DO {rule.action}",
         "ENDRULE",
     ]
 

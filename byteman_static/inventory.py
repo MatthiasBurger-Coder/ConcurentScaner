@@ -49,8 +49,15 @@ def build_inventory_lines(result: AnalysisResult) -> list[str]:
 def _format_type(type_info: TypeInfo) -> list[str]:
     lines = [
         f"TYPE {type_info.kind.upper()} {type_info.qualified_name}",
-        f"CLASS {type_info.qualified_name}",
     ]
+    if type_info.kind == "class":
+        lines.append(f"CLASS {type_info.qualified_name}")
+    elif type_info.kind == "interface":
+        lines.append(f"INTERFACE {type_info.qualified_name}")
+    elif type_info.kind == "enum":
+        lines.append(f"ENUM {type_info.qualified_name}")
+    elif type_info.kind == "record":
+        lines.append(f"RECORD {type_info.qualified_name}")
 
     for field in sorted(type_info.fields, key=lambda item: item.name):
         lines.append(f"FIELD {field.name} : {field.type_name}")
@@ -62,13 +69,16 @@ def _format_type(type_info: TypeInfo) -> list[str]:
 
 
 def _format_method(method: MethodInfo) -> list[str]:
-    lines = [
+    lines: list[str] = []
+    if method.is_constructor:
+        lines.append(f"CONSTRUCTOR {method.display_name}")
+    lines.append(
         (
             f"METHOD {method.display_name} RETURN {method.return_type}"
             if not method.is_constructor
             else f"METHOD {method.display_name} RETURN <constructor>"
         )
-    ]
+    )
     for parameter in method.parameters:
         lines.append(f"PARAM {parameter.name} : {parameter.type_name}")
     for local_name in sorted(method.local_variables):
