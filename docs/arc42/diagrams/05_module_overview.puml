@@ -25,7 +25,7 @@ package "verification" {
 }
 
 package "tests" {
-  [pytest suite] as tests
+  [pytest suite] as pytest_suite
 }
 
 cli --> gen
@@ -47,13 +47,12 @@ stress --> monitor
 stress --> report
 stress --> models
 
-tests --> cli
-tests --> gen
-tests --> monitor
-tests --> stress
+pytest_suite --> cli
+pytest_suite --> gen
+pytest_suite --> monitor
+pytest_suite --> stress
 scripts --> cli
 scripts --> fixtures
 reports ..> scripts
 
 @enduml
-
