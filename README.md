@@ -47,10 +47,266 @@ verification/
   fixtures/                      # Java and scenario fixtures
   scripts/                       # WSL/Linux E2E scripts
   reports/                       # verification reports and coverage artifacts
-  tools/                         # local JDK17 + byteman.jar used by scripts
+  tools/                         # optional local JDK17 + byteman.jar (gitignored, may be missing in fresh clone)
 README.md
 requirements.txt
 ```
+
+## User Manual / How-To (Start Here)
+
+This section is the practical onboarding guide. If you are new to this repository, start here.
+
+### Who This Is For
+
+- Junior developers who want a copy-paste path to first successful run.
+- Maintainers who need to know which files, env vars, and commands are required.
+- Users who want to run scan, watcher, and stress workflow manually or by script.
+
+### What You Need Before Running
+
+Required:
+
+- Python 3.12+ recommended
+- `pip`
+- Java runtime + compiler (`java` + `javac`)
+- Byteman agent jar (`byteman.jar`)
+- Linux/Bash runtime for launcher execution (`run-with-byteman.sh`) and WSL scripts
+
+Optional (documentation preview/export only):
+
+- AsciiDoc tooling / PyCharm AsciiDoc plugin
+- PlantUML renderer (local or Kroki)
+
+Python packages from this repo:
+
+- `tree-sitter>=0.21.3`
+- `tree-sitter-java>=0.23.5`
+
+Test/coverage tooling (optional but recommended):
+
+- `pytest`
+- `pytest-cov`
+
+### Tooling Paths: Choose One Setup Mode
+
+Mode A (repository-local tools, easiest if present):
+
+- Uses:
+  - `verification/tools/jdk17/bin/java`
+  - `verification/tools/jdk17/bin/javac`
+  - `verification/tools/byteman/byteman.jar`
+- This is what `verification/scripts/*.sh` expect.
+
+Mode B (your own installed tools, works in fresh clone without local tools):
+
+- Use your own `java`, `javac`, and `byteman.jar`.
+- Pass explicit paths via CLI flags:
+  - `--java-command`
+  - `--javac-command`
+  - `--byteman-jar`
+
+Important:
+
+- `verification/tools/` is gitignored by this repository, so it may not exist in a fresh clone.
+
+### Quick Start (Shortest Path to First Success)
+
+If `verification/tools/` exists and you are in WSL/Linux:
+
+```bash
+source .venv-wsl/bin/activate
+bash verification/scripts/stress_e2e_wsl.sh
+cat verification/artifacts/stress/stress-summary.json
+```
+
+Success indicators:
+
+- Script prints `STRESS_E2E_STATUS=PASS`
+- `verification/artifacts/stress/stress-summary.json` exists and is non-empty
+
+### Full Start Guide (Beginner, Step by Step)
+
+The commands below are written for Linux/WSL shell.
+
+1. Create and activate Python environment
+
+```bash
+cd /mnt/d/Projects/ConcurentScaner
+python3 -m venv .venv-wsl
+source .venv-wsl/bin/activate
+pip install -r requirements.txt
+pip install pytest pytest-cov
+```
+
+2. Verify tools
+
+```bash
+python --version
+java -version
+javac -version
+```
+
+3. Run static scan + rule generation
+
+```bash
+python -m byteman_static.cli scan \
+  --source-root verification/fixtures/e2e_java/src/main/java \
+  --output-dir verification/artifacts/manual_scan \
+  --package-prefix com.verifier.app \
+  --runtime-log-path verification/artifacts/manual_scan/runtime/byteman-runtime.log \
+  --generate-linux-startup verification/artifacts/manual_scan/run-with-byteman.sh
+```
+
+Expected output includes:
+
+- `Parser backend: ...`
+- `Generated rules: ...`
+- `Byteman.log: ...`
+- `generated-rules.btm: ...`
+
+4. Compile Java fixture sources
+
+```bash
+SRC_DIR="verification/fixtures/e2e_java/src/main/java"
+CLASSES_DIR="verification/artifacts/manual_scan/classes"
+mkdir -p "$CLASSES_DIR"
+find "$SRC_DIR" -name '*.java' | sort > verification/artifacts/manual_scan/java-files.list
+javac -d "$CLASSES_DIR" @verification/artifacts/manual_scan/java-files.list
+```
+
+5. Prepare mandatory `BYTEMAN_HOME` and run app with launcher
+
+```bash
+BYTEMAN_JAR="verification/tools/byteman/byteman.jar"  # or /absolute/path/to/byteman.jar
+mkdir -p verification/artifacts/manual_scan/byteman-home/lib
+cp "$BYTEMAN_JAR" verification/artifacts/manual_scan/byteman-home/lib/byteman.jar
+
+export BYTEMAN_HOME="$PWD/verification/artifacts/manual_scan/byteman-home"
+export APP_CLASSPATH="$PWD/$CLASSES_DIR"
+export APP_MAIN_CLASS="com.verifier.app.Main"
+./verification/artifacts/manual_scan/run-with-byteman.sh
+```
+
+6. Watch and analyze runtime log
+
+```bash
+python -m byteman_static.cli watch \
+  --log-file verification/artifacts/manual_scan/runtime/byteman-runtime.log \
+  --from-start \
+  --report-file verification/artifacts/manual_scan/watcher-report.jsonl \
+  --stop-after-idle-seconds 5
+```
+
+Expected output includes:
+
+- one or more suspect lines (for overlap cases), for example `RACE_SUSPECT ...`
+- final `WATCH_SUMMARY`
+
+7. Run full stress workflow (manual)
+
+```bash
+JAVA_CMD="verification/tools/jdk17/bin/java"      # or /usr/bin/java
+JAVAC_CMD="verification/tools/jdk17/bin/javac"    # or /usr/bin/javac
+BYTEMAN_JAR="verification/tools/byteman/byteman.jar"  # or /absolute/path/to/byteman.jar
+
+python -m byteman_static.cli stress-run \
+  --scenario-file verification/fixtures/stress_scenarios/shared_counter_stress.json \
+  --output-dir verification/artifacts/stress \
+  --byteman-jar "$BYTEMAN_JAR" \
+  --java-command "$JAVA_CMD" \
+  --javac-command "$JAVAC_CMD" \
+  --iterations 5 \
+  --concurrency-level 4
+```
+
+Expected output starts with `STRESS_SUMMARY`.
+
+### Environment Variables (Complete Runtime List)
+
+The project does not use a `.env` file loader. Variables are read from process environment (shell exports / inline env).
+
+| Variable | Required? | Default | What it controls | Read in code | Missing behavior / fallback | Example |
+|---|---|---|---|---|---|---|
+| `BYTEMAN_HOME` | Yes for launcher script | none | Base dir for default agent jar path (`lib/byteman.jar`) | generated script from `byteman_static/linux_integration.py` | launcher exits with code `2` and message `Missing BYTEMAN_HOME...` | `/opt/byteman` |
+| `BYTEMAN_AGENT_JAR` | Optional | `${BYTEMAN_HOME}/lib/byteman.jar` | Explicit agent jar path used in `-javaagent` | generated launcher script | falls back to default path under `BYTEMAN_HOME` | `/opt/byteman/lib/byteman.jar` |
+| `BYTEMAN_RULES_FILE` | Optional | embedded script default (`--rules-file`/generated path) | Rule file path passed to javaagent | generated launcher script | falls back to script default path | `/tmp/generated-rules.btm` |
+| `BYTEMAN_RUNTIME_LOG` | Optional | embedded script default (`--runtime-log-file`/generated path) | Runtime log target via `-Dbyteman.runtime.log` | generated launcher script; helper reads Java property in `RuntimeTraceHelper` | falls back to script default path; helper itself defaults to `Byteman.runtime.log` if JVM property absent | `/tmp/byteman-runtime.log` |
+| `BYTEMAN_VERBOSE` | Optional | `true` | Sets `-Dorg.jboss.byteman.verbose` | generated launcher script | default `true` | `false` |
+| `JAVA_CMD` | Optional | script generation default (`java` unless overridden) | Java executable used by launcher | generated launcher script | falls back to generated command | `/usr/bin/java` |
+| `JAVA_OPTS` | Optional | empty | Extra JVM args appended by launcher | generated launcher script | no extra options if unset | `-Xmx512m` |
+| `APP_JAR` | Conditional (one startup mode) | none | Jar launch mode (`java -jar`) | generated launcher script | if not set, must use classpath mode | `/path/app.jar` |
+| `APP_CLASSPATH` | Conditional (with `APP_MAIN_CLASS`) | none | Classpath launch mode | generated launcher script; set by stress runner | if either missing, launcher exits with code `2` | `/tmp/classes` |
+| `APP_MAIN_CLASS` | Conditional (with `APP_CLASSPATH`) | none | Main class for classpath launch | generated launcher script; set by stress runner | if either missing, launcher exits with code `2` | `com.verifier.app.Main` |
+| `STRESS_ITERATION` | Auto-set by stress runner | none | Current iteration index for app-side logic/diagnostics | set in `byteman_static/stress_runner.py` | not required for manual non-stress launch | `1` |
+| `STRESS_CONCURRENCY_LEVEL` | Auto-set by stress runner; optional for manual app launch | app default `2` in fixture `Main.java` | Worker thread fan-out in fixture app | set in stress runner; read by fixture `Main.java` | fixture app uses default `2` if unset/invalid | `4` |
+| `STRESS_OPS_PER_THREAD` | Optional | app default `20` in fixture `Main.java` | Operations per worker thread in fixture app | fixture `Main.java` | uses default `20` if unset/invalid | `24` |
+| `STRESS_PAUSE_MS` | Optional | app default `25` in fixture `Main.java` | Pause duration to encourage overlap in fixture app | fixture `Main.java` | uses default `25` if unset/invalid | `20` |
+| `JAVA_HOME` | Optional for CLI; required by provided WSL scripts | none | Tool path selection in scripts | `verification/scripts/*.sh` | scripts fail if required binaries unavailable | `$REPO_ROOT/verification/tools/jdk17` |
+| `PATH` | Environment standard; required by scripts/tool lookup | shell default | Resolves `python`, `java`, `javac`, etc. | scripts and shell command resolution | command-not-found failures | `$JAVA_HOME/bin:$PATH` |
+
+### Configuration Files and Settings
+
+| File | Required? | Purpose | Notes |
+|---|---|---|---|
+| `requirements.txt` | Yes | Python parser dependencies | install via `pip install -r requirements.txt` |
+| `verification/fixtures/stress_scenarios/shared_counter_stress.json` | Optional (required for stress scenario example) | Scenario defaults and env for `stress-run` | can be replaced by your own scenario JSON |
+| `.venv-wsl/` | Optional but recommended | Isolated Python env used by scripts | scripts expect it by default |
+| `.env` | Not used | - | no `.env` loader in implementation |
+
+Startup-ready minimum for `stress-run`:
+
+- valid scenario JSON (`--scenario-file`)
+- writable output dir (`--output-dir`)
+- valid `byteman.jar` path (CLI flag or scenario field)
+- working `java` + `javac` commands
+
+### CLI Commands at a Glance (Startup-Relevant)
+
+| Command | Use case | Minimum required arguments | Success indicator |
+|---|---|---|---|
+| `python -m byteman_static.cli scan` | Generate inventory + rules from Java sources | `--source-root`, `--output-dir` | prints `Byteman.log:` and `generated-rules.btm:` |
+| `python -m byteman_static.cli watch` | Parse runtime log and emit suspect summary | `--log-file` | prints `WATCH_SUMMARY` |
+| `python -m byteman_static.cli linux-startup` | Generate launcher script only | `--output-script`, `--rules-file`, `--runtime-log-file` | prints `Linux startup script:` |
+| `python -m byteman_static.cli stress-run` | Full compile + run + monitor + aggregate flow | `--scenario-file`, `--output-dir` (+ resolved byteman jar source) | prints `STRESS_SUMMARY` |
+
+### Run Tests and Coverage
+
+```bash
+python -m pytest -q
+```
+
+```bash
+python -m pytest --cov=byteman_static \
+  --cov-report=term-missing \
+  --cov-report=xml:verification/reports/coverage.xml \
+  --cov-report=html:verification/reports/coverage_html -q
+```
+
+If `python -m pytest` fails with `No module named pytest`, install:
+
+```bash
+python -m pip install pytest pytest-cov
+```
+
+### Important Paths and Outputs
+
+| Path | Meaning |
+|---|---|
+| `verification/fixtures/e2e_java/src/main/java` | Example Java app + runtime helper |
+| `verification/fixtures/static_java/src/main/java` | Static scan fixture set |
+| `verification/fixtures/stress_scenarios/*.json` | Stress scenario examples |
+| `verification/scripts/` | End-to-end and negative verification scripts |
+| `verification/artifacts/e2e/` | Baseline e2e outputs |
+| `verification/artifacts/negative/` | Negative scenario logs |
+| `verification/artifacts/stress/` | Stress run outputs (`stress-summary.json`, `stress-results.json`) |
+
+How to know the system is working:
+
+- `scan` prints generated file paths and non-zero discovered counts.
+- `watch` prints `WATCH_SUMMARY`.
+- `stress-run` prints `STRESS_SUMMARY`.
+- `verification/scripts/e2e_wsl.sh` ends with `E2E_STATUS=PASS`.
+- `verification/scripts/stress_e2e_wsl.sh` prints `STRESS_E2E_STATUS=PASS`.
 
 ## Requirements And Setup
 
@@ -414,6 +670,12 @@ Classification behavior comes from `byteman_static/stress_report.py`:
 ## Verification Scripts
 
 WSL/Linux scripts under `verification/scripts/`:
+
+Script assumptions:
+
+- `.venv-wsl` exists and contains required Python packages.
+- `verification/tools/jdk17` and `verification/tools/byteman/byteman.jar` exist.
+- Shell is Linux/WSL Bash.
 
 - `e2e_wsl.sh`
   End-to-end scan + compile + startup + watcher run against `verification/fixtures/e2e_java`.
