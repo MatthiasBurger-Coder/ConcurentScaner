@@ -1,0 +1,15 @@
+{
+  "scenario_id": "shared-counter-overlap",
+  "description": "Writer/reader overlap scenario using SharedCounter with configurable thread fan-out.",
+  "source_root": "../e2e_java/src/main/java",
+  "package_prefix": "com.verifier.app",
+  "helper_class": "com.example.byteman.RuntimeTraceHelper",
+  "main_class": "com.verifier.app.Main",
+  "java_sources_glob": "**/*.java",
+  "default_iterations": 6,
+  "default_concurrency_level": 4,
+  "env": {
+    "STRESS_OPS_PER_THREAD": "24",
+    "STRESS_PAUSE_MS": "20"
+  }
+}

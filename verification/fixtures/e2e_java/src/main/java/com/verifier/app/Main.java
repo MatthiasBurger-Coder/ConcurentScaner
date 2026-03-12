@@ -4,28 +4,43 @@ import java.util.concurrent.CountDownLatch;
 
 public class Main {
     public static void main(String[] args) throws Exception {
-        SharedCounter counter = new SharedCounter(0);
+        int concurrencyLevel = readEnvInt("STRESS_CONCURRENCY_LEVEL", 2);
+        int operationsPerThread = readEnvInt("STRESS_OPS_PER_THREAD", 20);
+        int pauseMillis = readEnvInt("STRESS_PAUSE_MS", 25);
+        int writerThreads = Math.max(1, concurrencyLevel / 2);
+        int readerThreads = Math.max(1, concurrencyLevel - writerThreads);
+
+        SharedCounter counter = new SharedCounter(0, pauseMillis);
         CountDownLatch startGate = new CountDownLatch(1);
+        Thread[] workers = new Thread[writerThreads + readerThreads];
 
-        Thread writer = new Thread(() -> {
-            await(startGate);
-            for (int i = 0; i < 20; i++) {
-                counter.incrementWithPause();
-            }
-        }, "writer-thread");
+        for (int i = 0; i < writerThreads; i++) {
+            String threadName = "writer-thread-" + i;
+            workers[i] = new Thread(() -> {
+                await(startGate);
+                for (int j = 0; j < operationsPerThread; j++) {
+                    counter.incrementWithPause();
+                }
+            }, threadName);
+        }
 
-        Thread reader = new Thread(() -> {
-            await(startGate);
-            for (int i = 0; i < 20; i++) {
-                counter.readWithPause();
-            }
-        }, "reader-thread");
+        for (int i = 0; i < readerThreads; i++) {
+            String threadName = "reader-thread-" + i;
+            workers[writerThreads + i] = new Thread(() -> {
+                await(startGate);
+                for (int j = 0; j < operationsPerThread; j++) {
+                    counter.readWithPause();
+                }
+            }, threadName);
+        }
 
-        writer.start();
-        reader.start();
+        for (Thread worker : workers) {
+            worker.start();
+        }
         startGate.countDown();
-        writer.join();
-        reader.join();
+        for (Thread worker : workers) {
+            worker.join();
+        }
         System.out.println("MAIN_DONE");
     }
 
@@ -34,6 +49,18 @@ public class Main {
             latch.await();
         } catch (InterruptedException ignored) {
             Thread.currentThread().interrupt();
+        }
+    }
+
+    private static int readEnvInt(String name, int defaultValue) {
+        String raw = System.getenv(name);
+        if (raw == null || raw.isBlank()) {
+            return defaultValue;
+        }
+        try {
+            return Integer.parseInt(raw.trim());
+        } catch (NumberFormatException ignored) {
+            return defaultValue;
         }
     }
 }
