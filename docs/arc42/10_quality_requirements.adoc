@@ -1,0 +1,78 @@
+[[section-quality-requirements]]
+== 10. Quality Requirements
+
+=== 10.1 Quality Tree (Project-Relevant)
+
+* Functional correctness (within heuristic scope)
+* Maintainability and modularity
+* Observability and diagnosability
+* Reproducibility
+* Robustness against malformed input and runtime irregularities
+* Practical usability for local verification workflows
+
+=== 10.2 Quality Scenarios
+
+[cols="1,2,2,3"]
+|===
+|ID |Quality attribute |Scenario |Implementation support
+
+|Q1
+|Maintainability
+|A contributor modifies runtime detection logic without changing scan generation logic.
+|Separation into `runtime_*` modules vs `parser/generator/rules` modules.
+
+|Q2
+|Reproducibility
+|Two identical scans produce identical rule files.
+|Deterministic generation order and explicit deterministic test.
+
+|Q3
+|Observability
+|After a stress run, operator can inspect both aggregate and per-iteration evidence.
+|`stress-summary.json`, `stress-results.json`, per-iteration logs/reports.
+
+|Q4
+|Robustness
+|Runtime log contains malformed or partial lines.
+|Parser returns `None`; monitor counts ignored lines and continues.
+
+|Q5
+|Diagnosability
+|A failure occurs in compile or runtime launcher stage.
+|Dedicated stdout/stderr log files and explicit error strings in iteration results.
+
+|Q6
+|Usability
+|User wants one-command local proof.
+|WSL scripts in `verification/scripts/` orchestrate end-to-end flows.
+|===
+
+=== 10.3 Quality Mechanisms by Concern
+
+[cols="1,3"]
+|===
+|Concern |Mechanisms in repository
+
+|Correctness (bounded)
+|Extensive pytest coverage around parser, monitor, CLI, and stress aggregation logic.
+
+|Traceability
+|All run artifacts are persisted as files with predictable names and directories.
+
+|Extensibility
+|Dataclass-based models, separable modules, and scenario JSON schema allow feature growth.
+
+|Performance practicality
+|Line-oriented streaming monitor and bounded polling loops; no heavyweight persistence layer.
+
+|Failure transparency
+|Return codes + per-step log files + explicit exceptions.
+|===
+
+=== 10.4 Non-Functional Limits
+
+* Detection confidence is heuristic by design.
+* No hard real-time or high-throughput guarantees are implemented.
+* No distributed scalability concerns are addressed (single-node local workflow focus).
+
+For concrete risk statements connected to these limits, see <<section-risks-and-technical-debt>>.

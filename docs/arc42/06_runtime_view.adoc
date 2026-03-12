@@ -1,0 +1,76 @@
+[[section-runtime-view]]
+== 6. Runtime View
+
+=== 6.1 Scenario A - `scan` Command Pipeline
+
+Runtime narrative:
+
+1. CLI parses `scan` arguments and builds `GeneratorConfig`.
+2. `analyze_source_tree` recursively scans `*.java` files.
+3. Parser backend is selected (`tree-sitter-java` preferred).
+4. `AnalysisResult` is filtered by package constraints.
+5. `Byteman.log` and `generated-rules.btm` are written.
+6. Optional metadata and optional Linux startup script are emitted.
+7. CLI prints summary counters and limitations.
+
+plantuml::diagrams/06_scan_runtime_flow.puml[format=svg,align=center]
+
+Error paths:
+
+* Missing source root -> `FileNotFoundError` -> CLI exit code `2`.
+* Other generator failure -> CLI exit code `1`.
+
+=== 6.2 Scenario B - `watch` Command Monitoring Loop
+
+Runtime narrative:
+
+1. `RuntimeLogFollower` opens/tails log file.
+2. New lines are parsed into `RuntimeEvent` objects.
+3. `RaceSuspectAggregator` tracks active field access windows.
+4. On overlap (different threads, at least one write), suspect is emitted.
+5. Optional JSONL reporter appends envelopes (`RAW_EVENT`, suspect levels).
+6. Loop stops on EOF/non-follow or idle timeout conditions.
+
+plantuml::diagrams/06_watch_runtime_sequence.puml[format=svg,align=center]
+
+Behavioral notes:
+
+* Read/read overlaps are ignored.
+* File truncation/rotation is handled by follower reopen logic.
+* Thresholds drive escalation to repeated/high-confidence levels.
+
+=== 6.3 Scenario C - `stress-run` Full Execution
+
+Runtime narrative:
+
+1. CLI loads and validates scenario JSON.
+2. Stress config resolves overrides (iterations, concurrency, byteman jar).
+3. Java sources are compiled using `javac`.
+4. Generator produces rules/inventory in `generated/`.
+5. Launcher script and local `byteman-home` are prepared.
+6. For each iteration:
+* monitor thread starts on iteration runtime log,
+* app is launched via generated script with env vars,
+* monitor/report are finalized,
+* iteration result object is captured.
+7. Aggregate summary and detailed result JSON are written.
+
+plantuml::diagrams/06_stress_run_sequence.puml[format=svg,align=center]
+
+Important runtime interfaces in this scenario:
+
+* file interface: runtime log + watcher report JSONL,
+* process interface: `javac`, launcher script subprocess,
+* environment interface: `APP_CLASSPATH`, `APP_MAIN_CLASS`, `BYTEMAN_HOME`, `STRESS_*`.
+
+=== 6.4 Scenario D - Linux Startup Wrapper Launch
+
+`linux_integration.py` generates a script that:
+
+* validates mandatory env (`BYTEMAN_HOME`),
+* composes Byteman agent option and system properties,
+* supports two launch modes:
+** jar launch (`APP_JAR`),
+** classpath launch (`APP_CLASSPATH` + `APP_MAIN_CLASS`),
+* exits with code `2` if required env is missing.
+

@@ -1,0 +1,26 @@
+@startuml
+title External Dependencies and Interfaces
+
+skinparam componentStyle rectangle
+
+rectangle "CLI User" as user
+rectangle "byteman_static.cli" as cli
+rectangle "Scenario JSON File" as scenario
+rectangle "Java Source Root" as sources
+rectangle "Byteman Agent Jar" as jar
+rectangle "JDK Commands" as jdk
+rectangle "Runtime Log File" as runtimeLog
+rectangle "JSONL Report File" as jsonl
+rectangle "Stress Summary/Results JSON" as summary
+
+user --> cli : command + flags
+cli --> scenario : read (stress-run)
+cli --> sources : read *.java
+cli --> jdk : invoke javac/java
+cli --> jar : resolve/copy
+cli --> runtimeLog : read/write
+cli --> jsonl : append records
+cli --> summary : write
+
+@enduml
+

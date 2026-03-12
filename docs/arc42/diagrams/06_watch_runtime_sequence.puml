@@ -1,0 +1,34 @@
+@startuml
+title Runtime Flow - watch Command
+
+actor User
+participant "CLI watch" as CLI
+participant "RuntimeLogFollower" as Follower
+participant "parse_runtime_event" as Parser
+participant "RaceSuspectAggregator" as Agg
+participant "JSONL Reporter" as Reporter
+
+User -> CLI : byteman_static.cli watch ...
+CLI -> Follower : follow(log_file, follow, idle_timeout)
+
+loop each line
+  Follower -> Parser : parse_runtime_event(line)
+  alt parsable event
+    Parser --> CLI : RuntimeEvent
+    CLI -> Reporter : emit RAW_EVENT (optional)
+    CLI -> Agg : process_event(event)
+    Agg --> CLI : suspects[]
+    loop each suspect
+      CLI -> Reporter : emit suspect level (optional)
+      CLI --> User : print suspect message
+    end
+  else malformed/unknown line
+    Parser --> CLI : None
+    CLI -> CLI : ignored_lines++
+  end
+end
+
+CLI --> User : WATCH_SUMMARY
+
+@enduml
+

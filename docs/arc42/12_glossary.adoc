@@ -1,0 +1,50 @@
+[[section-glossary]]
+== 12. Glossary
+
+[cols="1,3"]
+|===
+|Term |Definition
+
+|Byteman
+|Java bytecode instrumentation tool used via `-javaagent` with generated `.btm` rules.
+
+|BTM_EVT
+|Prefix used by runtime helper for structured runtime event lines.
+
+|Inventory (`Byteman.log`)
+|Static scan output file summarizing files, types, fields, methods, and usage hints.
+
+|Generated rules (`generated-rules.btm`)
+|Byteman rule file produced from static analysis model.
+
+|Runtime watcher
+|`RuntimeLogMonitor` process that tails logs, parses events, and emits suspect classifications.
+
+|RACE_SUSPECT
+|Base overlap signal emitted when two threads overlap on same field and at least one access is write.
+
+|REPEATED_RACE_SUSPECT
+|Elevated signal when overlap count reaches repeated threshold.
+
+|HIGH_CONFIDENCE_SUSPECT
+|Higher-level signal when overlap count reaches high-confidence threshold.
+
+|Stress scenario
+|JSON configuration used by `stress-run` to define source root, main class, defaults, and environment.
+
+|Stress summary
+|Aggregate JSON output (`stress-summary.json`) with outcome level and counters.
+
+|Stress results
+|Detailed JSON output (`stress-results.json`) including config, summary, and per-iteration records.
+
+|Tree-sitter backend
+|Preferred Java AST parser backend (`tree-sitter-java` binding).
+
+|Heuristic fallback parser
+|Regex-based parser used if AST backend is unavailable.
+
+|WSL
+|Windows Subsystem for Linux; verified execution environment for included shell scripts.
+|===
+

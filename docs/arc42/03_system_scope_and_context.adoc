@@ -1,0 +1,72 @@
+[[section-context]]
+== 3. System Scope and Context
+
+=== 3.1 System Boundary
+
+The documented system is the repository-local toolchain centered around `byteman_static`.
+
+Inside boundary:
+
+* Python CLI and modules for analysis/generation/monitoring/stress.
+* Scenario loading and runtime aggregation.
+* Verification fixtures and scripts used to prove behavior.
+
+Outside boundary:
+
+* Target Java application under analysis/stress (source and runtime process).
+* JDK binaries and Byteman agent jar.
+* Host OS and shell runtime.
+
+=== 3.2 External Actors and Systems
+
+[cols="1,3"]
+|===
+|External element |Interaction
+
+|Developer / test engineer
+|Invokes CLI and scripts, reviews generated artifacts and reports.
+
+|CI/local automation runner
+|Executes pytest and WSL scripts, collects artifacts.
+
+|Java source tree
+|Input for static scan and stress compilation.
+
+|JDK (`java`, `javac`)
+|Compiles and launches Java code for stress and E2E runs.
+
+|Byteman agent (`byteman.jar`)
+|Injected via `-javaagent` to emit runtime hooks.
+
+|Filesystem
+|Primary integration medium for inputs, logs, reports, and generated files.
+|===
+
+=== 3.3 Context Interfaces
+
+[cols="1,3"]
+|===
+|Interface |Description
+
+|CLI
+|`python -m byteman_static.cli <scan|watch|linux-startup|stress-run> ...`
+
+|Scenario file
+|JSON file consumed by `stress-run` (`load_stress_scenario`), supports root object or nested `"scenario"` object.
+
+|Runtime log
+|File with `BTM_EVT` or JSON lines parsed by `runtime_parser`.
+
+|JSONL report
+|Monitor output records with `record_type` envelope (`RAW_EVENT` or suspect levels).
+
+|Stress summaries
+|`stress-summary.json` and `stress-results.json`.
+|===
+
+=== 3.4 Context Diagrams
+
+plantuml::diagrams/03_system_context.puml[format=svg,align=center]
+
+plantuml::diagrams/03_external_dependencies.puml[format=svg,align=center]
+

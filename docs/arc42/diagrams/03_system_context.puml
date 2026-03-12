@@ -1,0 +1,29 @@
+@startuml
+title System Context - ConcurrentScanner Byteman Toolchain
+
+left to right direction
+skinparam componentStyle rectangle
+
+actor "Developer / Test Engineer" as user
+actor "CI Runner" as ci
+
+rectangle "ConcurrentScanner\nByteman Toolchain" as tool
+rectangle "Target Java Source Tree" as src
+rectangle "JDK (java, javac)" as jdk
+rectangle "Byteman Agent\n(byteman.jar)" as bm
+rectangle "Target Java Process" as app
+database "Filesystem\n(artifacts, logs, reports)" as fs
+
+user --> tool : run CLI / scripts
+ci --> tool : run tests / proof scripts
+
+tool --> src : scan *.java
+tool --> jdk : compile + execute
+tool --> bm : configure -javaagent
+tool --> app : launch via script
+tool --> fs : read/write artifacts
+app --> fs : append BTM_EVT log lines
+tool --> fs : follow + parse logs
+
+@enduml
+

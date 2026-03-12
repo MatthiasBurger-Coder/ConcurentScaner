@@ -1,0 +1,59 @@
+[[section-solution-strategy]]
+== 4. Solution Strategy
+
+=== 4.1 Strategy Overview
+
+The implementation follows a staged, file-centric architecture:
+
+1. Parse Java sources into an intermediate model.
+2. Generate deterministic static artifacts (inventory + Byteman rules).
+3. Instrument runtime with a generated Linux launcher (`-javaagent`).
+4. Parse and monitor emitted runtime events.
+5. Aggregate repeated stress observations into summarized outcomes.
+
+=== 4.2 Key Strategic Choices
+
+[cols="1,3"]
+|===
+|Strategy |How it appears in code
+
+|Model-driven generation
+|`model.py` defines canonical data structures used by parser, inventory writer, and rule generator.
+
+|Dual parser backend
+|`select_parser_backend()` prefers `tree-sitter-java`; falls back to regex parser when unavailable.
+
+|Deterministic output
+|Sorted traversal and unique rule naming in `rules.py`; deterministic test validates equivalence across runs.
+
+|File-based integration
+|All major interactions are via files: source files, runtime logs, JSONL reports, JSON summaries.
+
+|Heuristic runtime detection with escalation
+|`RaceSuspectAggregator` increments overlap counters and maps them to severity levels.
+
+|Scenario-driven stress orchestration
+|`stress_runner.py` composes compilation, generation, launch, monitoring, and aggregation.
+|===
+
+=== 4.3 Why This Fits Goals and Constraints
+
+* Works with local developer environments and WSL scripts without service infrastructure.
+* Keeps components individually testable (`parser`, `rules`, `runtime_monitor`, `stress_report`).
+* Produces auditable artifacts for analysis and verification.
+* Makes failure modes explicit via return codes, logs, and per-step outputs.
+
+=== 4.4 Deliberate Non-Goals
+
+The implementation intentionally does not provide:
+
+* formal race/deadlock proof,
+* scheduler-deterministic interleaving control,
+* full Java semantic/type resolution across modules,
+* production deployment packaging.
+
+See also:
+
+* constraints and platform limits in <<section-constraints>>,
+* runtime behavior details in <<section-runtime-view>>,
+* known weaknesses and debt in <<section-risks-and-technical-debt>>.

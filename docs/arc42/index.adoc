@@ -1,0 +1,27 @@
+= arc42 Architecture Documentation - ConcurrentScanner Byteman Toolchain
+:doctype: book
+:toc: left
+:toclevels: 3
+:sectnums:
+:icons: font
+
+// Generated from repository evidence in:
+// - byteman_static/*.py
+// - tests/*.py
+// - verification/scripts/*.sh
+// - verification/fixtures/*
+// - verification/reports/*
+
+include::01_introduction_and_goals.adoc[]
+include::02_architecture_constraints.adoc[]
+include::03_system_scope_and_context.adoc[]
+include::04_solution_strategy.adoc[]
+include::05_building_block_view.adoc[]
+include::06_runtime_view.adoc[]
+include::07_deployment_view.adoc[]
+include::08_crosscutting_concepts.adoc[]
+include::09_architecture_decisions.adoc[]
+include::10_quality_requirements.adoc[]
+include::11_risks_and_technical_debt.adoc[]
+include::12_glossary.adoc[]
+

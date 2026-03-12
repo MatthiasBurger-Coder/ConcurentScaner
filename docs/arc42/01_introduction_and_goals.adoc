@@ -1,0 +1,76 @@
+[[section-introduction-and-goals]]
+== 1. Introduction and Goals
+
+=== 1.1 Purpose
+
+The repository provides a Python-based toolchain to:
+
+* statically analyze Java source trees,
+* generate Byteman instrumentation rules,
+* launch Java processes with Byteman `-javaagent` integration (Linux/Bash wrapper),
+* monitor runtime trace logs (`BTM_EVT` lines),
+* detect and classify race-suspect overlaps heuristically,
+* execute repeated scenario-based stress runs and aggregate outcomes.
+
+This scope is implemented primarily in `byteman_static/` and exercised by tests in `tests/` plus WSL scripts in `verification/scripts/`.
+
+=== 1.2 Goals
+
+[cols="1,3"]
+|===
+|Goal |Repository evidence
+
+|G1 - Static structural extraction for Java
+|`byteman_static/parser.py`, `byteman_static/model.py`, `tests/test_static_scan_and_generation.py`
+
+|G2 - Deterministic instrumentation output
+|`byteman_static/rules.py` (stable sort + unique naming), deterministic test in `test_generator_writes_outputs_and_rules_are_deterministic`
+
+|G3 - Runtime observability through explicit event lines
+|`verification/fixtures/e2e_java/.../RuntimeTraceHelper.java`, `byteman_static/runtime_parser.py`
+
+|G4 - Heuristic concurrency risk signaling
+|`byteman_static/runtime_monitor.py` (`RACE_SUSPECT`, escalation thresholds)
+
+|G5 - Repeatable stress workflow with machine-readable outcomes
+|`byteman_static/stress_runner.py`, `byteman_static/stress_report.py`, `stress-summary.json` / `stress-results.json`
+
+|G6 - Practical local proof workflow on WSL/Linux
+|`verification/scripts/e2e_wsl.sh`, `negative_scenarios_wsl.sh`, `stress_e2e_wsl.sh`, `verification/reports/local_proof_report.md`
+|===
+
+=== 1.3 Stakeholders
+
+[cols="1,3"]
+|===
+|Stakeholder |Need
+
+|Tool user (developer/test engineer)
+|Run `scan`, `watch`, `stress-run` commands and understand suspicious runtime evidence.
+
+|Maintainer
+|Understand module boundaries, data flow, thresholds, and generated artifacts.
+
+|Architecture reviewer
+|Trace quality tradeoffs (heuristic detection, parser fallback, platform constraints).
+
+|CI/local verification owner
+|Run scripts and tests reproducibly in Linux/WSL context.
+|===
+
+=== 1.4 Main Use Cases
+
+* Analyze a Java source root and generate `Byteman.log` + `generated-rules.btm`.
+* Generate a launcher script that injects Byteman agent and runtime properties.
+* Monitor runtime logs continuously and emit suspect lines + JSONL report.
+* Execute scenario-driven stress iterations and inspect aggregate outcome levels:
+  `BENIGN`, `SUSPICIOUS`, `REPEATED_SUSPICIOUS`, `HIGH_CONFIDENCE_SUSPICIOUS`.
+
+=== 1.5 Success Criteria
+
+* CLI commands return expected outputs and error codes for valid/invalid inputs (`byteman_static/cli.py`).
+* Artifacts are written in expected directories and formats (`generator.py`, `stress_runner.py`).
+* Runtime parser handles key-value and JSON lines (`runtime_parser.py`, tests).
+* Monitor resists malformed/truncated/duplicate lines without crashing (`runtime_monitor.py`, tests).
+* Stress run produces traceable per-iteration and aggregate JSON outputs.
+

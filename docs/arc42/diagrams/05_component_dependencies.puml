@@ -1,0 +1,49 @@
+@startuml
+title byteman_static - Component Dependency Graph
+
+skinparam componentStyle rectangle
+top to bottom direction
+
+component "cli" as cli
+component "generator" as gen
+component "parser" as parser
+component "inventory" as inv
+component "rules" as rules
+component "linux_integration" as linux
+component "runtime_parser" as rp
+component "runtime_monitor" as rm
+component "stress_runner" as sr
+component "stress_report" as srep
+component "model" as model
+component "runtime_model" as rmodel
+component "stress_model" as smodel
+
+cli --> gen
+cli --> rm
+cli --> linux
+cli --> sr
+cli --> smodel
+
+gen --> parser
+gen --> inv
+gen --> rules
+gen --> model
+
+parser --> model
+inv --> model
+rules --> model
+
+rp --> rmodel
+rm --> rp
+rm --> rmodel
+
+smodel --> rm
+sr --> gen
+sr --> linux
+sr --> rm
+sr --> srep
+sr --> smodel
+srep --> smodel
+
+@enduml
+

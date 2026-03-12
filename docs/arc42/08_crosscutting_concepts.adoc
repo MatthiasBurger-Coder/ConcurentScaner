@@ -1,0 +1,90 @@
+[[section-crosscutting-concepts]]
+== 8. Crosscutting Concepts
+
+=== 8.1 Configuration Concept
+
+Configuration is intentionally distributed across three channels:
+
+* CLI flags (`cli.py`)
+* Scenario JSON (`stress_runner.load_stress_scenario`)
+* Environment variables (launcher + stress iteration env)
+
+Precedence examples:
+
+* `stress-run --iterations` overrides scenario `default_iterations`.
+* `stress-run --byteman-jar` overrides scenario `byteman_jar`.
+* Launcher env `BYTEMAN_RULES_FILE` can override script-embedded default.
+
+=== 8.2 Parsing Concept
+
+Static parsing:
+
+* AST mode via `tree-sitter-java` when available.
+* Regex fallback parser if AST backend cannot initialize.
+* Package filtering by prefix and/or regex.
+
+Runtime parsing:
+
+* Supports both key-value and JSON line formats.
+* Normalizes event aliases to canonical event types.
+* Supports ISO timestamps, epoch seconds, and epoch milliseconds.
+
+=== 8.3 Rule Generation Concept
+
+Rules are generated deterministically by:
+
+* sorted traversal of files/types/methods,
+* stable rule naming and collision-safe suffixes,
+* entry/exit instrumentation for methods,
+* field read/write before/after hooks derived from field usage hints.
+
+=== 8.4 Runtime Monitoring Concept
+
+`RaceSuspectAggregator` maintains:
+
+* active field accesses per class+field,
+* active stacks per thread/class/field,
+* overlap counters and first-seen timestamps per class+field.
+
+Suspect emission rule:
+
+* overlap from different threads,
+* at least one participating access is a write.
+
+=== 8.5 Logging and Reporting Concept
+
+Log/report channels:
+
+* Runtime helper writes line-oriented `BTM_EVT` events.
+* Watcher prints suspect lines and summary counters to stdout.
+* Optional JSONL reporter writes envelope records:
+** `record_type`
+** `emitted_at`
+** `payload`
+* Stress runner writes final JSON summaries.
+
+=== 8.6 Error Handling Concept
+
+* Validation failures raise explicit exceptions with actionable messages.
+* CLI maps common classes of errors to return codes (`2` usage/data errors, `1` runtime failures).
+* Stress runner captures per-iteration errors in `StressIterationResult.error`.
+* Watcher remains resilient to malformed/partial lines and truncation.
+
+=== 8.7 Path and Artifact Naming Conventions
+
+Conventions in implementation:
+
+* `Byteman.log` for inventory.
+* `generated-rules.btm` for rules.
+* `Byteman.runtime.log` and `byteman-runtime.log` for runtime events.
+* `watcher-report.jsonl` for per-line monitoring output.
+* `stress-summary.json` and `stress-results.json` for aggregation results.
+
+=== 8.8 Testing Concept
+
+Three validation layers:
+
+* unit/component tests under `tests/`
+* integration-oriented stress/launcher checks with mocks
+* shell-based E2E + negative scripts in `verification/scripts/`
+

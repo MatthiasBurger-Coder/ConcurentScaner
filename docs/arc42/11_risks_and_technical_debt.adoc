@@ -1,0 +1,51 @@
+[[section-risks-and-technical-debt]]
+== 11. Risks and Technical Debt
+
+=== 11.1 Architectural Risks
+
+[cols="1,3,2"]
+|===
+|Risk |Description |Evidence
+
+|R1 - Heuristic false positives/negatives
+|Race detection is overlap-based and does not prove data races formally.
+|`runtime_monitor.py`, README and report statements.
+
+|R2 - Parser fidelity gap in fallback mode
+|Regex fallback may miss nested types/locals/field usage details.
+|`parser.py` fallback limitations.
+
+|R3 - Platform coupling
+|Stress execution depends on Bash script launch path; non-Linux environments are constrained.
+|`linux_integration.py`, `stress_runner.py`, WSL scripts.
+
+|R4 - Runtime helper contract fragility
+|Generated rules assume helper methods and runtime log behavior; helper mismatch breaks observability.
+|`rules.py` action generation + fixture helper class.
+
+|R5 - Environment drift
+|Toolchain behavior depends on external `java`, `javac`, and `byteman.jar` availability.
+|CLI/stress validation and script prerequisites.
+|===
+
+=== 11.2 Technical Debt Items
+
+* No formal ADR repository; decisions are implicit in code.
+* No packaging/build metadata for release consumption.
+* Limited semantic analysis (no full type resolution across Java files).
+* Stress interleaving encouragement (`sleep`-based) is semi-deterministic.
+* Potential filesystem growth from repeated runs without retention policy.
+
+=== 11.3 Test and Verification Gaps
+
+* Integration scripts prove Linux/WSL path, but portability tests on native Windows/macOS are not represented.
+* Performance and scaling tests (very large source trees / very long logs) are not explicit.
+* No explicit schema versioning for scenario JSON or report JSON outputs.
+
+=== 11.4 Mitigation Directions
+
+* Add formal ADRs under `docs/adr/`.
+* Introduce optional JSON schema definitions for scenario and report files.
+* Add platform matrix tests (native Linux, WSL, optional Windows-compatible launch strategy).
+* Add benchmark suite for parser and monitor throughput on larger workloads.
+

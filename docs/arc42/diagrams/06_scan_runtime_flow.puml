@@ -1,0 +1,28 @@
+@startuml
+title Runtime Flow - scan Command
+
+start
+:Parse CLI args (scan);
+:Build GeneratorConfig;
+if (source root exists?) then (yes)
+  :Select parser backend;
+  :Scan and parse Java files;
+  :Apply package filters;
+  :Write Byteman.log;
+  :Write generated-rules.btm;
+  if (metadata enabled?) then (yes)
+    :Write analysis-metadata.json;
+  endif
+  if (generate linux script?) then (yes)
+    :Write run-with-byteman.sh;
+  endif
+  :Print summary;
+  stop
+else (no)
+  :Raise FileNotFoundError;
+  :CLI prints ERROR and exits 2;
+  stop
+endif
+
+@enduml
+

@@ -1,0 +1,126 @@
+[[section-building-block-view]]
+== 5. Building Block View
+
+=== 5.1 Level 1 - Top-Level Decomposition
+
+plantuml::diagrams/05_module_overview.puml[format=svg,align=center]
+
+Top-level building blocks:
+
+* `byteman_static` - core implementation package.
+* `tests` - pytest-based verification.
+* `verification/fixtures` - Java and scenario fixtures.
+* `verification/scripts` - WSL/Linux end-to-end and negative scripts.
+* `verification/reports` - generated coverage and proof reports.
+
+=== 5.2 Level 2 - byteman_static Module Responsibilities
+
+[cols="2,3,3"]
+|===
+|Module |Responsibility |Key dependencies
+
+|`cli.py`
+|Argument parsing, subcommand dispatch, return code handling.
+|`generator`, `runtime_monitor`, `linux_integration`, `stress_runner`
+
+|`parser.py`
+|Java source parsing (AST/fallback), package filtering, structural extraction.
+|`model`, `tree_sitter`, `tree_sitter_java`
+
+|`model.py`
+|Static analysis domain model.
+|Python `dataclasses`, `typing`
+
+|`generator.py`
+|Scan orchestration, artifact and metadata writing.
+|`parser`, `inventory`, `rules`
+
+|`inventory.py`
+|Renders analysis to inventory text file.
+|`model`
+
+|`rules.py`
+|Renders Byteman rules and stable rule names.
+|`model`
+
+|`linux_integration.py`
+|Generates Bash launcher for Byteman Java agent startup.
+|`Path`, dataclasses
+
+|`runtime_model.py`
+|Runtime event/suspect domain model.
+|Python `dataclasses`, `datetime`
+
+|`runtime_parser.py`
+|Parses runtime lines (`BTM_EVT`/JSON) to runtime model.
+|`runtime_model`, `json`, `shlex`
+
+|`runtime_monitor.py`
+|Follows log files, aggregates overlaps, emits suspects/reports.
+|`runtime_parser`, `runtime_model`
+
+|`stress_model.py`
+|Stress scenario/config/result domain model.
+|`runtime_monitor.MonitorStats`
+
+|`stress_runner.py`
+|Executes full stress workflow and writes summaries.
+|`generator`, `linux_integration`, `runtime_monitor`, `stress_report`, `subprocess`
+
+|`stress_report.py`
+|Summarizes per-iteration JSONL and computes aggregate outcome.
+|`stress_model`, `json`
+|===
+
+plantuml::diagrams/05_component_dependencies.puml[format=svg,align=center]
+
+=== 5.3 Level 3 - Stress Runner Internal Decomposition
+
+`StressRunner.run()` is the most orchestration-heavy building block.
+
+plantuml::diagrams/05_stress_runner_decomposition.puml[format=svg,align=center]
+
+Detailed responsibilities inside stress workflow:
+
+* Validate config (`_validate_config`).
+* Compile sources (`_compile_sources`) with `javac`.
+* Generate inventory and rules (`run_generator`).
+* Generate startup script (`write_linux_startup_script`).
+* Prepare local `BYTEMAN_HOME` folder by copying jar.
+* For each iteration:
+** start runtime monitor thread,
+** launch app through generated script,
+** join monitor and summarize report,
+** record iteration result including logs and errors.
+* Aggregate all iteration observations (`aggregate_stress_results`).
+* Persist `stress-summary.json` and `stress-results.json`.
+
+=== 5.4 Supporting Building Blocks
+
+==== Tests
+
+Test suite coverage focus:
+
+* static parsing/generation (`test_static_scan_and_generation.py`)
+* runtime parsing/monitoring resilience (`test_runtime_parser_and_monitor.py`)
+* CLI and launcher generation (`test_cli_and_linux_integration.py`)
+* stress scenario + aggregation + mocked execution (`test_stress_runner_and_reporting.py`)
+
+==== Verification Scripts
+
+* `e2e_wsl.sh`: full baseline pipeline.
+* `negative_scenarios_wsl.sh`: error-path and resilience checks.
+* `stress_e2e_wsl.sh`: stress workflow verification.
+
+==== Java Runtime Helper Contract (Fixture-Side)
+
+`verification/fixtures/e2e_java/src/main/java/com/example/byteman/RuntimeTraceHelper.java`
+implements the callback surface that generated rules invoke:
+
+* `onMethodEnter`
+* `onMethodExit`
+* `beforeFieldAccess`
+* `afterFieldAccess`
+* `detectDeadlockNow`
+
+This helper serializes events as `BTM_EVT` lines into the runtime log path provided by system property `byteman.runtime.log`.

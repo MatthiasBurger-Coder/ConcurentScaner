@@ -1,0 +1,50 @@
+[[section-constraints]]
+== 2. Architecture Constraints
+
+=== 2.1 Technical Constraints
+
+[cols="1,3"]
+|===
+|Constraint |Details
+
+|Language/runtime
+|Primary implementation is Python (`byteman_static/*.py`). Java is used for fixture applications and runtime helper classes.
+
+|Parser dependencies
+|`tree-sitter` and `tree-sitter-java` are required for AST mode (see `requirements.txt`). Fallback mode uses heuristic regex parsing.
+
+|Java/agent tooling
+|Instrumentation and stress runs depend on a valid `byteman.jar` and Java commands (`java`, `javac`) supplied via CLI/scenario/script.
+
+|Script runtime
+|Generated startup wrapper is Bash (`#!/usr/bin/env bash`) and expects Linux-compatible environment semantics (`set -euo pipefail`).
+|===
+
+=== 2.2 Platform and Environment Constraints
+
+* WSL/Linux is the verified runtime context for launcher execution and end-to-end scripts.
+* `verification/scripts/*.sh` explicitly source `.venv-wsl` and rely on Unix tools (`find`, `grep`, `wc`, `sed`, background process control).
+* In stress flow, the runner executes a shell script path (`run-with-byteman.sh`), which is not directly Windows-native.
+
+=== 2.3 Repository Constraints
+
+* No packaging/build system file (no `pyproject.toml`, no `setup.py`) for distribution; execution is module-based (`python -m byteman_static.cli`).
+* Tests are `pytest` based and expect repository-root import path adjustment (`tests/conftest.py`).
+* Generated verification artifacts are ignored in git (`.gitignore`: `verification/artifacts/`, `verification/tools/`, coverage outputs).
+
+=== 2.4 Integration Constraints
+
+* The runtime monitor only understands:
+** `BTM_EVT ...` key-value log lines
+** JSON object log lines
+* Byteman helper class contract is string/event based (`RuntimeTraceHelper.java` methods called from generated rules).
+* Stress scenarios must provide valid `source_root` and `main_class`; fields are validated by `load_stress_scenario`.
+
+=== 2.5 Operational Constraints
+
+* Detection is heuristic, threshold-based (`repeated_threshold`, `high_confidence_threshold`).
+* Static analysis does not do full cross-file type resolution (explicit limitation in parser selection metadata).
+* Error signaling is exit-code based:
+** CLI usage/data errors return `2`
+** execution failures return `1`
+

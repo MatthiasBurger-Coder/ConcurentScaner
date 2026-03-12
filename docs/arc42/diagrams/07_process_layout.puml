@@ -1,0 +1,29 @@
+@startuml
+title Process Layout During stress-run Iteration
+
+skinparam componentStyle rectangle
+top to bottom direction
+
+node "Python Process\n(byteman_static.cli stress-run)" as py {
+  component "StressRunner main thread" as main
+  component "RuntimeLogMonitor thread" as mon
+}
+
+node "Subprocesses" as sub {
+  component "javac process" as javac
+  component "bash run-with-byteman.sh" as bash
+  component "java application process" as java
+}
+
+database "Files" as files
+
+main --> javac : compile sources
+main --> bash : launch iteration
+bash --> java : exec with agent
+java --> files : byteman-runtime.log\napp stdout/stderr
+mon --> files : tail runtime log
+mon --> files : watcher-report.jsonl
+main --> files : stress-summary.json\nstress-results.json
+
+@enduml
+

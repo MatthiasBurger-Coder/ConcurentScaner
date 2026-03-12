@@ -1,0 +1,42 @@
+@startuml
+title Runtime Flow - stress-run Command
+
+actor User
+participant "CLI stress-run" as CLI
+participant "load_stress_scenario" as Loader
+participant "StressRunner" as Runner
+participant "javac" as Javac
+participant "Generator" as Generator
+participant "Linux Script Generator" as ScriptGen
+participant "Runtime Monitor Thread" as Monitor
+participant "Java App Process" as App
+participant "Stress Report" as Report
+
+User -> CLI : stress-run --scenario-file ... --output-dir ...
+CLI -> Loader : load scenario JSON
+Loader --> CLI : StressScenario
+CLI -> Runner : execute_stress_run(config)
+
+Runner -> Javac : compile java sources
+Javac --> Runner : return code
+Runner -> Generator : run_generator(...)
+Generator --> Runner : rules + inventory paths
+Runner -> ScriptGen : write run-with-byteman.sh
+ScriptGen --> Runner : startup script path
+
+loop each iteration
+  Runner -> Monitor : start watcher thread
+  Runner -> App : subprocess.run(startup script, env)
+  App --> Runner : exit code + stdout/stderr logs
+  Monitor --> Runner : MonitorStats + report file
+  Runner -> Report : summarize_iteration_report(report.jsonl)
+  Report --> Runner : StressIterationObservation
+end
+
+Runner -> Report : aggregate_stress_results(...)
+Report --> Runner : StressAggregateSummary
+Runner --> CLI : StressRunResult (summary + file paths)
+CLI --> User : STRESS_SUMMARY + artifact paths
+
+@enduml
+

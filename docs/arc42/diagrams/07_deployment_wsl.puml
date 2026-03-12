@@ -1,0 +1,32 @@
+@startuml
+title Deployment View - Local Host with WSL Execution
+
+left to right direction
+skinparam componentStyle rectangle
+
+node "Windows Host" as win {
+  folder "Repository checkout\nD:\\Projects\\ConcurentScaner" as repoWin
+}
+
+node "WSL2 Ubuntu" as wsl {
+  node "Python venv (.venv-wsl)" as venv
+  node "Python CLI Process" as pyproc
+  node "Bash Launcher Script\n(run-with-byteman.sh)" as bash
+  node "Java Process\n(main class / jar)" as java
+}
+
+database "Filesystem artifacts\nverification/artifacts/*" as artifacts
+node "JDK17 binaries\nverification/tools/jdk17/bin" as jdk
+node "Byteman agent jar\nverification/tools/byteman/byteman.jar" as bmjar
+
+repoWin -- wsl : mounted path (/mnt/d/...)
+venv --> pyproc
+pyproc --> bash : generate + execute
+bash --> jdk : invoke java
+bash --> java : launch with -javaagent
+java --> artifacts : runtime log + app logs
+pyproc --> artifacts : rules, reports, summaries
+pyproc --> bmjar : copy to byteman-home/lib
+
+@enduml
+
